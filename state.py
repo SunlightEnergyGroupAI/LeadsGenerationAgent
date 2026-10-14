@@ -19,7 +19,8 @@ class StateSchema(TypedDict):
     zoom_info_calls: int 
     hunter_io_calls: int 
     total_tokens_used: int 
-       
+    urls: list[str]
+
 
 
 
