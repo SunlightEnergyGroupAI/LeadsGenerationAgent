@@ -17,7 +17,8 @@ from langchain_core.documents import Document
 from source import Source 
 import asyncio 
 from langchain.messages import SystemMessage  
-from supabase import create_client, Client 
+from supabase import create_client, Client  
+import time
 
 load_dotenv()  
 tavilyapikey = os.getenv("TAVILYAPI")   
@@ -51,7 +52,7 @@ def checkForDuplicateLead(state: StateSchema):
     """Checks supabase"""  
     ... 
 
-#TODO: work on the SystemPrompt ie the Agent Prompt
+#TODO: work on the SystemPrompt ie the Agent Prompt with Vipul (friday)
 
 
 
@@ -86,7 +87,7 @@ def checkForDuplicateLead(state: StateSchema):
 
 
 # @tool
-async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra-fast", "advanced"], maxResults: int) -> list[Source]:
+async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra-fast", "advanced"], maxResults: int) -> list[Source]: 
     """
     Gets information from the web/internet and returns the most relevant information
     Multiple search engines are used in order to get information those being the following: Bing, Yandex, DuckDuckGo, Tavily
@@ -99,10 +100,9 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
     Returns:
     - list[Source]: one Source per unique url, with the crawled page content (markdown)
       in `information` and the url in `sourceName`
-    """
+    """ 
 
-    #IN FUTURE CHANGE THE TAVILY CLIENT maxresult to something larger in between 5 - 10 for basic create if statements 
-    #
+    
 
 
     tavilyEngine = TavilyClient(api_key=tavilyapikey) 
@@ -111,14 +111,14 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
    
     bing_results = searchEngine.text(searchQuery, max_results=maxResults, backend="bing") 
     yandex_results = searchEngine.text(searchQuery, max_results=maxResults, backend="yandex") 
-    # ddg_results = searchEngine.text(searchQuery, max_results=maxResults, backend="duckduckgo") 
+    time.sleep(180) #used to avoid rate limit however can introduce retryPolicy middleware down the line instead 
 
     if searchDepth == "advanced": 
         tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
     elif searchDepth == "basic":
-        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
+        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=20)
     elif searchDepth == "fast": 
-        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
+        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=20)
     elif searchDepth == "ultra-fast": 
         tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
 
@@ -158,14 +158,14 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
 
 
 
-# results = asyncio.run(getInfo("What is python programming", "basic", 10))
-# print(len(results))
-# print() 
-# print()
-# print(results) 
-# print() 
-# print() 
-# print(len(results))
+results = asyncio.run(getInfo("What is python programming", "basic", 10))
+print(len(results))
+print() 
+print()
+print(results) 
+print() 
+print() 
+print(len(results))
 
 
 
