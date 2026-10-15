@@ -10,55 +10,166 @@ import pandas as pd
 from state import StateSchema 
 from langgraph.checkpoint.memory import InMemorySaver 
 from crawl4ai import AsyncWebCrawler 
-from typing import Literal
+from typing import Literal 
+from langchain.mcp import MCPAdapter 
+from bs4 import BeautifulSoup 
+from langchain_core.documents import Document 
+from source import Source 
+import asyncio 
+from langchain.messages import SystemMessage  
+from supabase import create_client, Client 
 
-
+load_dotenv()  
 tavilyapikey = os.getenv("TAVILYAPI")   
 hunterapikey = os.getenv("HUNTERAPI") 
 config = {"configurable": {"thread_id": "1"}} 
 checkpointer = InMemorySaver() 
-agent = init_chat_model(model_provider="ollama", model="qwen3:8b")   
-graph = StateGraph(StateSchema)  
+agent = init_chat_model(model_provider="ollama", model="qwen3:8b")  
+graph = StateGraph(StateSchema) 
+
+
+
+
+systemPrompt = """
+
+
+
+
+""" 
+
+
+
+
+
+def initalize_agent(state: StateSchema):
+    agentPrompt = SystemMessage(systemPrompt)
+    inital_agent_response = agent.invoke([agentPrompt]) 
+    return {}
+
+
+def checkForDuplicateLead(state: StateSchema):
+    """Checks supabase"""  
+    ... 
+
+#TODO: work on the SystemPrompt ie the Agent Prompt
+
 
 
 #TODO: add the doc strings to the tools inside of the func so llm can obtain context 
 
-@tool  
-def getFullZoomInfoContact(): 
-    ... 
-
-@tool 
-def getPersonZoomInfo(): 
-    ...  
-
-@tool 
-def getContactInfoHunter(): 
-    ... 
-
-
-
-
-
-
-
-@tool
-def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra-fast", "advanced"], maxResults: int):  
-    bingEngine = DDGS(backend="bing") 
-    yahooEngine = DDGS(backend="yahoo") 
-    ddgEngine = DDGS(backend="duckduckgo") 
-
-    bingEngine.text(searchQuery, max_results=maxResults) 
-    yahooEngine.text(searchQuery, max_results=maxResults) 
-    ddgEngine.text(searchQuery, max_results=maxResults)
+# @tool  
+# def getFullContactsZoomInfo():
+#     """ 
+#     Utilizes the ZoomInfo mcp in order to get names 
     
     
+#     """ 
+#     ... 
+
+# @tool 
+# def getPersonZoomInfo(): 
+#     ...  
+
+# @tool 
+# def getContactInfoHunter(): 
+#     ...  
+
+
+# @tool 
+# def getFullContactApollo(): 
+#     ...
 
 
 
 
 
 
-load_dotenv()  
+
+# @tool
+async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra-fast", "advanced"], maxResults: int) -> list[Source]:
+    """
+    Gets information from the web/internet and returns the most relevant information
+    Multiple search engines are used in order to get information those being the following: Bing, Yandex, DuckDuckGo, Tavily
+
+    Args:
+    - searchQuery: str (the query that gets placed into the search engine)
+    - searchDepth: str (Controls the depth of the search when using TavilyClient)
+    - maxResults: the amount of sites we get back in returns from a query
+
+    Returns:
+    - list[Source]: one Source per unique url, with the crawled page content (markdown)
+      in `information` and the url in `sourceName`
+    """
+
+    #IN FUTURE CHANGE THE TAVILY CLIENT maxresult to something larger in between 5 - 10 for basic create if statements 
+    #
+
+
+    tavilyEngine = TavilyClient(api_key=tavilyapikey) 
+
+    searchEngine = DDGS() 
+   
+    bing_results = searchEngine.text(searchQuery, max_results=maxResults, backend="bing") 
+    yandex_results = searchEngine.text(searchQuery, max_results=maxResults, backend="yandex") 
+    # ddg_results = searchEngine.text(searchQuery, max_results=maxResults, backend="duckduckgo") 
+
+    if searchDepth == "advanced": 
+        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
+    elif searchDepth == "basic":
+        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
+    elif searchDepth == "fast": 
+        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
+    elif searchDepth == "ultra-fast": 
+        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
+
+    sources = [] 
+    seen = set()
+
+    async with AsyncWebCrawler() as crawler:
+        for r in bing_results:
+            if r["href"] in seen:
+                continue 
+            else: 
+                seen.add(r["href"])
+                page = await crawler.arun(url=r["href"])
+                information = str(page.markdown) if page.success and page.markdown else r.get("body", "")
+                sources.append(Source(information=information, sourceName=r["href"]))
+
+        for r in yandex_results:
+            if r["href"] in seen:
+                continue
+            seen.add(r["href"])
+            page = await crawler.arun(url=r["href"])
+            information = str(page.markdown) if page.success and page.markdown else r.get("body", "")
+            sources.append(Source(information=information, sourceName=r["href"]))
+
+        
+
+        for r in tavily_results.get("results", []):
+            if r["url"] in seen:
+                continue
+            seen.add(r["url"])
+            page = await crawler.arun(url=r["url"])
+            information = str(page.markdown) if page.success and page.markdown else r.get("content", "")
+            sources.append(Source(information=information, sourceName=r["url"]))
+
+    return sources
+
+
+
+
+# results = asyncio.run(getInfo("What is python programming", "basic", 10))
+# print(len(results))
+# print() 
+# print()
+# print(results) 
+# print() 
+# print() 
+# print(len(results))
+
+
+
+
 
 
 
@@ -78,8 +189,12 @@ Qualify node which is where crawl4ai comes in to see if they can qualify
 or subagents
 """
 
+graph.add_node(initalize_agent)  
 
-
+graph.add_edge(START, "initalize_agent") 
+graph.add_edge("initalize_agent", END)
+app = graph.compile()  
+app.get_graph().draw_png("workflow.png")
 
 
 
