@@ -18,7 +18,10 @@ from source import Source
 import asyncio 
 from langchain.messages import SystemMessage  
 from supabase import create_client, Client  
-import time
+import time  
+from langchain.agents import create_agent 
+from langchain_ollama import ChatOllama
+
 
 load_dotenv()  
 tavilyapikey = os.getenv("TAVILYAPI")   
@@ -27,7 +30,11 @@ config = {"configurable": {"thread_id": "1"}}
 checkpointer = InMemorySaver() 
 agent = init_chat_model(model_provider="ollama", model="qwen3:8b")  
 graph = StateGraph(StateSchema) 
+qwenSub = ChatOllama(model="qwen3:8b") 
 
+
+
+#SUBAGENT USES THE ZOOM INFO 
 
 
 
@@ -36,7 +43,13 @@ systemPrompt = """
 
 
 
-""" 
+"""  
+
+
+subAgentSystemPrompt = """ 
+
+
+"""
 
 
 
@@ -59,13 +72,23 @@ def checkForDuplicateLead(state: StateSchema):
 #TODO: add the doc strings to the tools inside of the func so llm can obtain context 
 
 # @tool  
-# def getFullContactsZoomInfo():
-#     """ 
-#     Utilizes the ZoomInfo mcp in order to get names 
+async def getFullContactsZoomInfo():
+    """ 
+    Utilizes the ZoomInfo mcp in order to get names by incorporating subagent
     
-    
-#     """ 
-#     ... 
+    """ 
+
+
+    zoom_info_tools = await MCPAdapter("https://mcp.zoominfo.com/mcp").list_tools()
+    zoomInfoAgent = create_agent(model=qwenSub, tools=zoom_info_tools)
+    # print(mcp)
+    return 
+
+
+
+
+
+
 
 # @tool 
 # def getPersonZoomInfo(): 
@@ -85,12 +108,14 @@ def checkForDuplicateLead(state: StateSchema):
 
 
 
-
+#TOOL DESCRIPTION NEEDS WORK
 # @tool
 async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra-fast", "advanced"], maxResults: int) -> list[Source]: 
     """
     Gets information from the web/internet and returns the most relevant information
-    Multiple search engines are used in order to get information those being the following: Bing, Yandex, DuckDuckGo, Tavily
+    Multiple search engines are used in order to get information those being the following: Bing, Yandex, Tavily
+
+    For the search query ut
 
     Args:
     - searchQuery: str (the query that gets placed into the search engine)
@@ -101,10 +126,6 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
     - list[Source]: one Source per unique url, with the crawled page content (markdown)
       in `information` and the url in `sourceName`
     """ 
-
-    
-
-
     tavilyEngine = TavilyClient(api_key=tavilyapikey) 
 
     searchEngine = DDGS() 
@@ -158,14 +179,7 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
 
 
 
-results = asyncio.run(getInfo("What is python programming", "basic", 10))
-print(len(results))
-print() 
-print()
-print(results) 
-print() 
-print() 
-print(len(results))
+
 
 
 
