@@ -42,10 +42,11 @@ qwenSub = ChatOllama(model="qwen3:8b")
 def checkDuplicateLead(state: StateSchema): 
     current_company_lead = state["lead_to_check"].company
     supabase_client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY"))
-    response = supabase_client.table("new_leads").select("*").eq("lead_name", current_company_lead)
-    data = response.data
     response = supabase_client.table("new_leads").select("*").eq("company_name", current_company_lead).execute()
-    
+    if response.data: 
+        {"current_lead_duplicate": True} 
+    else: 
+        {"current_lead_duplicate": False}
 
 
 checkDuplicateLead()
