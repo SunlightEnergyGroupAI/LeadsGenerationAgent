@@ -9,7 +9,7 @@ MONTHLY BASIS CAPS
 zoom_info_calls ie enriching and getting full contact information 
 to be set at a hard limit of 80 
 
-hunteR_io_calls ie getting emails is at a hard limit of 33 
+hunter_io_calls ie getting emails is at a hard limit of 33 
 
 """
 

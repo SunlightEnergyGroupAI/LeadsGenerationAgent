@@ -21,16 +21,48 @@ from supabase import create_client, Client
 import time  
 from langchain.agents import create_agent 
 from langchain_ollama import ChatOllama
+from fastmcp.client import Client
+
 
 
 load_dotenv()  
 tavilyapikey = os.getenv("TAVILYAPI")   
 hunterapikey = os.getenv("HUNTERAPI") 
+zmClientId = os.getenv("ZOOMINFOCLIENTID") 
+zmClientSecret = os.getenv("ZOOMINFOCLIENTSECRET") 
+
 config = {"configurable": {"thread_id": "1"}} 
 checkpointer = InMemorySaver() 
 agent = init_chat_model(model_provider="ollama", model="qwen3:8b")  
 graph = StateGraph(StateSchema) 
-qwenSub = ChatOllama(model="qwen3:8b") 
+qwenSub = ChatOllama(model="qwen3:8b")  
+
+
+def get_zoominfo_token() -> str:
+    r = requests.post(
+        "https://api.zoominfo.com/gtm/oauth/v1/token",
+        auth=(zmClientId, zmClientSecret),
+        data={"grant_type": "client_credentials"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+async def fetchZoomInfoTools():
+    client = Client("https://mcp.zoominfo.com/mcp", auth=get_zoominfo_token())
+    async with MCPAdapter(client) as adapter:
+        tools = await adapter.list_tools()
+    return tools 
+
+async def fetchApolloTools(): 
+    tools = await MCPAdapter("https://mcp.apollo.io/mcp").list_tools() 
+     
+    ...
+
+
+zm_tools = asyncio.run(fetchZoomInfoTools()) 
+
+
 
 
 
@@ -46,43 +78,26 @@ systemPrompt = """
 """  
 
 
-subAgentSystemPrompt = """ 
-
-
-"""
-
-
-
-
 
 def initalize_agent(state: StateSchema):
     agentPrompt = SystemMessage(systemPrompt)
     inital_agent_response = agent.invoke([agentPrompt]) 
-    return {}
+    return {} 
 
+
+
+
+def searchNamesZoomInfo(): 
+    searchNamesPrompt = """
+    """
+    
+
+    
 
 def checkForDuplicateLead(state: StateSchema):
     """Checks supabase"""  
     ... 
 
-#TODO: work on the SystemPrompt ie the Agent Prompt with Vipul (friday)
-
-
-
-#TODO: add the doc strings to the tools inside of the func so llm can obtain context 
-
-# @tool  
-async def getFullContactsZoomInfo():
-    """ 
-    Utilizes the ZoomInfo mcp in order to get names by incorporating subagent
-    
-    """ 
-
-
-    zoom_info_tools = await MCPAdapter("https://mcp.zoominfo.com/mcp").list_tools()
-    zoomInfoAgent = create_agent(model=qwenSub, tools=zoom_info_tools)
-    # print(mcp)
-    return 
 
 
 
@@ -90,9 +105,9 @@ async def getFullContactsZoomInfo():
 
 
 
-# @tool 
-# def getPersonZoomInfo(): 
-#     ...  
+
+
+
 
 # @tool 
 # def getContactInfoHunter(): 
@@ -132,7 +147,7 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
    
     bing_results = searchEngine.text(searchQuery, max_results=maxResults, backend="bing") 
     yandex_results = searchEngine.text(searchQuery, max_results=maxResults, backend="yandex") 
-    time.sleep(180) #used to avoid rate limit however can introduce retryPolicy middleware down the line instead 
+    time.sleep(125) #used to avoid rate limit however can introduce retryPolicy middleware down the line instead 
 
     if searchDepth == "advanced": 
         tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
@@ -165,7 +180,6 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
             sources.append(Source(information=information, sourceName=r["href"]))
 
         
-
         for r in tavily_results.get("results", []):
             if r["url"] in seen:
                 continue
@@ -175,6 +189,7 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
             sources.append(Source(information=information, sourceName=r["url"]))
 
     return sources
+
 
 
 
@@ -203,12 +218,14 @@ Qualify node which is where crawl4ai comes in to see if they can qualify
 or subagents
 """
 
-graph.add_node(initalize_agent)  
+graph.add_node(initalize_agent) 
+
 
 graph.add_edge(START, "initalize_agent") 
 graph.add_edge("initalize_agent", END)
 app = graph.compile()  
-app.get_graph().draw_png("workflow.png")
+app.get_graph().draw_png("workflow.png") 
+
 
 
 
