@@ -1,7 +1,7 @@
-from typing import TypedDict, Literal
+from typing import TypedDict, Literal, Annotated
 from dataclasses import dataclass
 from contact import Contact 
-
+import operator
 
 """
 MONTHLY BASIS CAPS
@@ -15,11 +15,13 @@ hunter_io_calls ie getting emails is at a hard limit of 33
 
 
 class StateSchema(TypedDict): 
-    leads: list[Contact] 
+    leads: Annotated[list[Contact], operator.add] 
     zoom_info_calls: int 
     hunter_io_calls: int 
     total_tokens_used: int 
-    urls: list[str]
+    urls: list[str] 
+    lead_to_check: Contact 
+    current_lead_duplicate: bool
 
 
 

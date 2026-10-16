@@ -21,7 +21,8 @@ from supabase import create_client, Client
 import time  
 from langchain.agents import create_agent 
 from langchain_ollama import ChatOllama
-from fastmcp.client import Client
+from fastmcp.client import Client as c 
+from contact import Contact  
 
 
 
@@ -35,7 +36,19 @@ config = {"configurable": {"thread_id": "1"}}
 checkpointer = InMemorySaver() 
 agent = init_chat_model(model_provider="ollama", model="qwen3:8b")  
 graph = StateGraph(StateSchema) 
-qwenSub = ChatOllama(model="qwen3:8b")  
+qwenSub = ChatOllama(model="qwen3:8b") 
+
+
+def checkDuplicateLead(state: StateSchema): 
+    current_company_lead = state["lead_to_check"].company
+    supabase_client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY"))
+    response = supabase_client.table("new_leads").select("*").eq("lead_name", current_company_lead)
+    data = response.data
+    response = supabase_client.table("new_leads").select("*").eq("company_name", current_company_lead).execute()
+    
+
+
+checkDuplicateLead()
 
 
 def get_zoominfo_token() -> str:
@@ -54,18 +67,19 @@ async def fetchZoomInfoTools():
         tools = await adapter.list_tools()
     return tools 
 
-def fetchApolloTools(): 
+def connectApolloAPI(): 
+    """Get the states and the correct filters and then this should be good we can return the contacts """ 
     apollo_key = os.getenv("APOLLOAPIKEY") 
-    response = requests.post(
-        url="https://api.apollo.io/api/v1/mixed_people/api_search", 
-        headers={"Content-Type": "application/json"}
+    response_body = requests.post(
+        url="https://api.apollo.io/api/v1/mixed_people/api_search",
+        headers={"Content-Type": "application/json", "x-api-key": apollo_key}, 
+        json={
 
+        }
     )
-     
-    ...
 
-
-zm_tools = asyncio.run(fetchZoomInfoTools()) 
+    
+    return
 
 
 
@@ -98,10 +112,6 @@ def searchNamesZoomInfo():
     
 
     
-
-def checkForDuplicateLead(state: StateSchema):
-    """Checks supabase"""  
-    ... 
 
 
 
@@ -152,7 +162,7 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
    
     bing_results = searchEngine.text(searchQuery, max_results=maxResults, backend="bing") 
     yandex_results = searchEngine.text(searchQuery, max_results=maxResults, backend="yandex") 
-    time.sleep(125) #used to avoid rate limit however can introduce retryPolicy middleware down the line instead 
+    # time.sleep(125) #used to avoid rate limit however can introduce retryPolicy middleware down the line instead 
 
     if searchDepth == "advanced": 
         tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
@@ -194,11 +204,6 @@ async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra
             sources.append(Source(information=information, sourceName=r["url"]))
 
     return sources
-
-
-
-
-
 
 
 
