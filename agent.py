@@ -54,8 +54,13 @@ async def fetchZoomInfoTools():
         tools = await adapter.list_tools()
     return tools 
 
-async def fetchApolloTools(): 
-    tools = await MCPAdapter("https://mcp.apollo.io/mcp").list_tools() 
+def fetchApolloTools(): 
+    apollo_key = os.getenv("APOLLOAPIKEY") 
+    response = requests.post(
+        url="https://api.apollo.io/api/v1/mixed_people/api_search", 
+        headers={"Content-Type": "application/json"}
+
+    )
      
     ...
 
