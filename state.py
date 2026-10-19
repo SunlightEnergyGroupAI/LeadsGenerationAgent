@@ -21,7 +21,11 @@ class StateSchema(TypedDict):
     total_tokens_used: int 
     urls: list[str] 
     lead_to_check: Contact 
-    current_lead_duplicate: bool
+    add_current_lead: Contact 
+    added_lead: bool 
+    is_current_lead_duplicate: bool 
+    lead_to_get_email: Contact 
+    
 
 
 

@@ -17,13 +17,14 @@ from langchain_core.documents import Document
 from source import Source 
 import asyncio 
 from langchain.messages import SystemMessage  
-from supabase import create_client, Client  
+from supabase import create_client 
+from supabase import Client as cli
 import time  
 from langchain.agents import create_agent 
 from langchain_ollama import ChatOllama
-from fastmcp.client import Client as c 
-from contact import Contact  
-
+from fastmcp.client import Client 
+from contact import Contact   
+from fastmcp.client.transports import StreamableHttpTransport 
 
 
 load_dotenv()  
@@ -44,14 +45,34 @@ def checkDuplicateLead(state: StateSchema):
     supabase_client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY"))
     response = supabase_client.table("new_leads").select("*").eq("company_name", current_company_lead).execute()
     if response.data: 
-        {"current_lead_duplicate": True} 
+        {"is_current_lead_duplicate": True} 
     else: 
-        {"current_lead_duplicate": False}
+        {"is_current_lead_duplicate": False} 
 
+def addLeadtoDB(state: StateSchema): 
+    supabase_client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY"))  
+    full_name = state["add_current_lead"].lead_first_name + state["add_current_lead"].lead_last_name
+    record = {
+        "lead_name": full_name, 
+        "company_name": state["add_current_lead"].company, 
+        "lead_role": state["add_current_lead"].company_role
+    } 
+    try:   
+        response = supabase_client.table("new_leads").insert(record).execute()  
+        return True
+    except: 
+        return False 
 
-checkDuplicateLead()
-
-
+def findemailWithHunter(state: StateSchema): 
+    first_name = state["lead_to_get_email"].lead_first_name 
+    last_name = state["lead_to_get_email"].lead_last_name 
+    company_name = state["lead_to_get_email"].company   
+    url = "https://api.hunter.io/v2/email-finder"
+    response = requests.get(url, params={"first_name": first_name, "last_name": last_name, "company": company_name, "api_key": hunterapikey}) 
+    data = response.json() 
+    lead_email = data["data"]["email"] 
+    return lead_email  
+   
 def get_zoominfo_token() -> str:
     r = requests.post(
         "https://api.zoominfo.com/gtm/oauth/v1/token",
@@ -68,25 +89,66 @@ async def fetchZoomInfoTools():
         tools = await adapter.list_tools()
     return tools 
 
-def connectApolloAPI(): 
+def apolloPeopleSearch(): 
     """Get the states and the correct filters and then this should be good we can return the contacts """ 
     apollo_key = os.getenv("APOLLOAPIKEY") 
-    response_body = requests.post(
-        url="https://api.apollo.io/api/v1/mixed_people/api_search",
-        headers={"Content-Type": "application/json", "x-api-key": apollo_key}, 
-        json={
+    url = "https://api.apollo.io/api/v1/mixed_people/api_search" 
+    headers = {
+        "Cache-Control": "no-cache",
+        "Content-Type": "application/json",
+        "accept": "application/json",
+        "x-api-key": apollo_key
+    } 
 
-        }
-    )
+    query_params = {
 
-    
+    }
+    response = requests.post(url, headers, query_params)    
     return
 
+def apolloFetchContactInfo(): 
+    url = "https://api.apollo.io/api/v1/people/match" 
+    return  
+
+
+
+def useApolloMCP():  
+    transport = StreamableHttpTransport(url="https://mcp.apollo.io/mcp", headers={"X-Api-Key": os.getenv("APOLLOAPIKEY")})
+    ...
 
 
 
 
-#SUBAGENT USES THE ZOOM INFO 
+
+
+async def composioOutlook():   
+    transport = StreamableHttpTransport(url="https://connect.composio.dev/mcp", headers={"x-consumer-api-key": "ck_IPiV5AV1ejKX_m6QJmY-"}) 
+    async with Client(transport) as c: 
+        tools = await c.list_tools() 
+
+    print([tool.name for tool in tools]) 
+ 
+
+
+    # config = { 
+    #     "composio": {
+    #         "url": "https://connect.composio.dev/mcp", 
+    #         "transport": "http",
+    #         "headers": {"x-consumer-api-key": "ck_IPiV5AV1ejKX_m6QJmY-"}
+    #     }
+    # } 
+    # composio_tools = await MCPAdapter(config).list_tools() 
+    # create_agent(model="qwen3:8b", tools=composio_tools)
+    # return
+
+asyncio.run(composioOutlook())
+    
+
+    # tools = await MCPAdapter(client(mcplink, "ck_IPiV5AV1ejKX_m6QJmY-")).list_tools() 
+    # return [tool.name for tool in tools] 
+
+
+
 
 
 
@@ -102,14 +164,15 @@ systemPrompt = """
 def initalize_agent(state: StateSchema):
     agentPrompt = SystemMessage(systemPrompt)
     inital_agent_response = agent.invoke([agentPrompt]) 
-    return {} 
+    return {}  
 
 
 
 
-def searchNamesZoomInfo(): 
-    searchNamesPrompt = """
-    """
+
+
+
+
     
 
     
