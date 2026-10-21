@@ -24,8 +24,13 @@ from langchain.agents import create_agent
 from langchain_ollama import ChatOllama
 from fastmcp.client import Client 
 from contact import Contact   
-from fastmcp.client.transports import StreamableHttpTransport 
-
+from fastmcp.client.transports import StreamableHttpTransport  
+from langchain_core.tools import Tool 
+from langchain_core.utils.function_calling import convert_to_openai_tool 
+from langchain_core.tools import BaseTool 
+from SearchQuery import Query
+import re 
+from urllib.parse import urlparse
 
 load_dotenv()  
 tavilyapikey = os.getenv("TAVILYAPI")   
@@ -35,9 +40,109 @@ zmClientSecret = os.getenv("ZOOMINFOCLIENTSECRET")
 
 config = {"configurable": {"thread_id": "1"}} 
 checkpointer = InMemorySaver() 
-agent = init_chat_model(model_provider="ollama", model="qwen3:8b")  
+agent = init_chat_model(model_provider="ollama", model="qwen3.5:4b")  
 graph = StateGraph(StateSchema) 
-qwenSub = ChatOllama(model="qwen3:8b") 
+qwenSub = ChatOllama(model="qwen3.5:4b") 
+
+
+zoomInfoPromptFullContacts = """ 
+
+
+
+"""
+
+
+
+def initalize_agent(state: StateSchema) -> dict:
+    agentPrompt = SystemMessage("systemPrompt")
+    inital_agent_response = agent.invoke([agentPrompt]) 
+    return {}  
+
+async def UseZoomInfoTools(state: StateSchema) -> dict: 
+    zmTools = await fetchZoomInfoTools() 
+    zoomInfoAgent = agent.with_structured_output() 
+    zoomInfoAgent = agent.bind_tools(zmTools) 
+    results = await zoomInfoAgent.ainvoke([zoomInfoPromptFullContacts]) 
+    #check db/add db 
+    #also in the dictionary add to the Contact 
+    return {"zoom_info_calls": state["zoom_info_calls"] + 1}
+
+    ...
+
+
+
+
+
+def useZoomInfoAgain(state: StateSchema) -> dict: 
+    if state["zoom_info_calls"] < 3: 
+        return "use_again" 
+    else: 
+        return "next_tool"  
+
+
+def getNamesFromZoomInfo(state: StateSchema) -> dict:  
+    ...
+
+
+def getApolloTools(state: StateSchema) -> dict: 
+    ... 
+
+def getContactsApollo(state: StateSchema) -> dict:  
+    ...
+
+
+
+
+
+
+def get_zoominfo_token() -> str:
+    r = requests.post(
+        "https://api.zoominfo.com/gtm/oauth/v1/token",
+        auth=(zmClientId, zmClientSecret),
+        data={"grant_type": "client_credentials"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()["access_token"]
+
+
+async def fetchZoomInfoTools():
+    client = Client("https://mcp.zoominfo.com/mcp", auth=get_zoominfo_token())
+    async with MCPAdapter(client) as adapter:
+        tools = await adapter.list_tools() 
+    return tools 
+
+
+
+
+
+async def getApolloTools():  
+    transport = StreamableHttpTransport(url="https://mcp.apollo.io/mcp", headers={"X-Api-Key": os.getenv("APOLLOAPIKEY")}) 
+    async with Client(transport) as c: 
+        tools = await c.list_tools() 
+    return tools
+     
+
+async def composioOutlook():   
+    transport = StreamableHttpTransport(url="https://connect.composio.dev/mcp", headers={"x-consumer-api-key": "ck_IPiV5AV1ejKX_m6QJmY-"}) 
+    async with Client(transport) as c: 
+        tools = await c.list_tools() 
+    return tools
+
+
+
+    
+    
+
+
+
+
+
+
+
+ 
+
+
 
 
 def checkDuplicateLead(state: StateSchema): 
@@ -73,98 +178,179 @@ def findemailWithHunter(state: StateSchema):
     lead_email = data["data"]["email"] 
     return lead_email  
    
-def get_zoominfo_token() -> str:
-    r = requests.post(
-        "https://api.zoominfo.com/gtm/oauth/v1/token",
-        auth=(zmClientId, zmClientSecret),
-        data={"grant_type": "client_credentials"},
-        timeout=30,
-    )
-    r.raise_for_status()
-    return r.json()["access_token"]
-
-async def fetchZoomInfoTools():
-    client = Client("https://mcp.zoominfo.com/mcp", auth=get_zoominfo_token())
-    async with MCPAdapter(client) as adapter:
-        tools = await adapter.list_tools()
-    return tools 
-
-def apolloPeopleSearch(): 
-    """Get the states and the correct filters and then this should be good we can return the contacts """ 
-    apollo_key = os.getenv("APOLLOAPIKEY") 
-    url = "https://api.apollo.io/api/v1/mixed_people/api_search" 
-    headers = {
-        "Cache-Control": "no-cache",
-        "Content-Type": "application/json",
-        "accept": "application/json",
-        "x-api-key": apollo_key
-    } 
-
-    query_params = {
-
-    }
-    response = requests.post(url, headers, query_params)    
-    return
-
-def apolloFetchContactInfo(): 
-    url = "https://api.apollo.io/api/v1/people/match" 
-    return  
-
-
-
-def useApolloMCP():  
-    transport = StreamableHttpTransport(url="https://mcp.apollo.io/mcp", headers={"X-Api-Key": os.getenv("APOLLOAPIKEY")})
-    ...
 
 
 
 
 
 
-async def composioOutlook():   
-    transport = StreamableHttpTransport(url="https://connect.composio.dev/mcp", headers={"x-consumer-api-key": "ck_IPiV5AV1ejKX_m6QJmY-"}) 
-    async with Client(transport) as c: 
-        tools = await c.list_tools() 
-
-    print([tool.name for tool in tools]) 
- 
 
 
-    # config = { 
-    #     "composio": {
-    #         "url": "https://connect.composio.dev/mcp", 
-    #         "transport": "http",
-    #         "headers": {"x-consumer-api-key": "ck_IPiV5AV1ejKX_m6QJmY-"}
-    #     }
-    # } 
-    # composio_tools = await MCPAdapter(config).list_tools() 
-    # create_agent(model="qwen3:8b", tools=composio_tools)
-    # return
 
-asyncio.run(composioOutlook())
+
+
+    
+
+   
+
     
 
     # tools = await MCPAdapter(client(mcplink, "ck_IPiV5AV1ejKX_m6QJmY-")).list_tools() 
     # return [tool.name for tool in tools] 
 
 
+icp_prompt = """
+Write one web search query that finds the websites of individual businesses.
+
+Target: a small manufacturer in Maryland.
+
+Pick ONE specific trade (for example machine shop, sheet metal fabrication, plastics molding,
+food production, printing, woodworking) and ONE Maryland city or town.
+
+Rules:
+- Plain keywords only
+- No quotes, no parentheses, no OR or AND, no site: filters
+- Do not use the words best, top, list, companies, small, or directory
+- Under 10 words
+- Do not mention job titles, emails, or LinkedIn
+- Return only the query, with no explanation
+
+Example of the style: sheet metal fabrication Pittsburgh Pennsylvania
+"""
+
+icp_prompt2 = """
+Write one web search query that finds the websites of individual businesses.
+
+Target: an independent hotel, inn or motel in New Jersey.
+
+Pick ONE type (for example boutique hotel, family owned inn, bed and breakfast, motel,
+resort) and ONE New Jersey city or town.
+
+Rules:
+- Plain keywords only
+- No quotes, no parentheses, no OR or AND, no site: filters
+- Do not use the words best, top, list, hotels, small, or directory
+- Under 10 words
+- Do not mention job titles, emails, or LinkedIn
+- Return only the query, with no explanation
+
+Example of the style: family owned inn Austin Texas
+"""
+
+BLOCKED = ("yelp.", "linkedin.", "facebook.", "indeed.", "glassdoor.", "yellowpages.",
+           "tripadvisor.", "zoominfo.", "mapquest.", "bbb.org", "wikipedia.", "reddit.",
+           "instagram.", "youtube.", "manta.", "dnb.com", "expedia.", "booking.com")
+CONTACT_WORDS = ("contact", "about", "team", "leadership", "staff", "people", "management")
+
+
+async def getInfoTest():
+    """
+    Step 1: search Bing, Yandex and Tavily and keep the first 10 company websites.
+    Step 2: crawl each company's site (homepage plus contact/about/team pages)
+    and pull emails, phones and exec-title lines.
+
+    Returns:
+    - list[dict]: one dict per company with company_domain, website, emails, phones, title_lines
+    """
+    tavilyEngine = TavilyClient(api_key=tavilyapikey)
+    searchEngine = DDGS()
+    queryMakerLLM = init_chat_model(model_provider="ollama", model="nemotron-3-nano:30b-cloud")
+
+    sq = queryMakerLLM.invoke([icp_prompt]).content.strip().strip('"')
+    sq2 = queryMakerLLM.invoke([icp_prompt2]).content.strip().strip('"')
+    print("BING QUERY:", sq)
+    print("YANDEX QUERY:", sq2)
+    urls = []
+    try:
+        urls += [r["href"] for r in searchEngine.text(sq, max_results=15, backend="bing")]
+    except Exception as e:
+        print("bing failed:", e)
+    try:
+        urls += [r["href"] for r in searchEngine.text(sq2, max_results=15, backend="yandex")]
+    except Exception as e:
+        print("yandex failed:", e)
+    try:
+        urls += [r["url"] for r in tavilyEngine.search(sq, max_results=10)["results"]]
+    except Exception as e:
+        print("tavily failed:", e)
+
+    companies = {}  
+    for u in urls:
+        domain = urlparse(u).netloc.lower().removeprefix("www.")
+        if not domain or any(b in domain for b in BLOCKED) or domain in companies:
+            continue
+        companies[domain] = u
+        if len(companies) == 10:
+            break
+    print(f"{len(companies)} companies found:", list(companies))
+    email_re = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+    phone_re = re.compile(r"\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}")
+    title_re = re.compile(
+        r"^.*\b(CEO|Chief \w+ Officer|President|Vice President|VP|Director|Manager|Owner|Pastor)\b.*$",
+        re.MULTILINE,
+    )
+    junk = ("example.com", "sentry", "wixpress", ".png", ".jpg", ".webp")
+
+    results = []
+    async with AsyncWebCrawler() as crawler:
+        for domain, home_url in companies.items():
+            print("crawling:", domain)
+            text = ""
+            try:
+                home = await asyncio.wait_for(crawler.arun(url=home_url), timeout=20)
+                text += str(home.markdown or "")
+                pages = []
+                for link in (home.links or {}).get("internal", []):
+                    href = link.get("href", "")
+                    if any(w in href.lower() for w in CONTACT_WORDS) and href not in pages:
+                        pages.append(href)
+
+                for page in pages[:3]:
+                    try:
+                        res = await asyncio.wait_for(crawler.arun(url=page), timeout=20)
+                        text += "\n" + str(res.markdown or "")
+                    except Exception as e:
+                        print("  skip page", page, e)
+            except Exception as e:
+                print("skip", domain, e)
+                continue
+
+            emails = sorted({e.lower().strip(".") for e in email_re.findall(text)
+                             if not any(j in e.lower() for j in junk)})
+            phones = sorted(set(phone_re.findall(text)))[:3]
+            title_lines = [m.group(0).strip()[:120] for m in title_re.finditer(text)][:5]
+
+            results.append({
+                "company_domain": domain,
+                "website": home_url,
+                "emails": emails[:5],
+                "phones": phones,
+                "title_lines": title_lines,
+            })
+            print(f"{domain} | emails: {len(emails)} | phones: {len(phones)} | title lines: {len(title_lines)}")
+
+    return results
+
+
+# results = asyncio.run(getInfoTest())
+    
+
+    # time.sleep(125) #used to avoid rate limit however can introduce retryPolicy middleware down the line instead 
+    # tavily_results = tavilyEngine.search(sq, "advanced", max_results=10)
+ 
+
+
+# res = asyncio.run(getInfoTest()) 
+# print(res)
 
 
 
 
-systemPrompt = """
 
 
 
 
-"""  
 
-
-
-def initalize_agent(state: StateSchema):
-    agentPrompt = SystemMessage(systemPrompt)
-    inital_agent_response = agent.invoke([agentPrompt]) 
-    return {}  
 
 
 
@@ -185,25 +371,6 @@ def initalize_agent(state: StateSchema):
 
 
 
-
-
-
-# @tool 
-# def getContactInfoHunter(): 
-#     ...  
-
-
-# @tool 
-# def getFullContactApollo(): 
-#     ...
-
-
-
-
-
-
-#TOOL DESCRIPTION NEEDS WORK
-# @tool
 async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra-fast", "advanced"], maxResults: int) -> list[Source]: 
     """
     Gets information from the web/internet and returns the most relevant information
@@ -293,10 +460,19 @@ or subagents
 """
 
 graph.add_node(initalize_agent) 
+graph.add_node(UseZoomInfoTools)   
+graph.add_node(getNamesFromZoomInfo)
 
 
 graph.add_edge(START, "initalize_agent") 
-graph.add_edge("initalize_agent", END)
+graph.add_edge("initalize_agent", "UseZoomInfoTools") 
+graph.add_conditional_edges( 
+    "UseZoomInfoTools", 
+    useZoomInfoAgain, 
+    {"use_again": "UseZoomInfoTools", "next_tool": "getNamesFromZoomInfo"} 
+)
+
+graph.add_edge("getNamesFromZoomInfo", END)
 app = graph.compile()  
 app.get_graph().draw_png("workflow.png") 
 
