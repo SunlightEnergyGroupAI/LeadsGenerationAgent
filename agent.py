@@ -30,7 +30,8 @@ from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_core.tools import BaseTool 
 from SearchQuery import Query
 import re 
-from urllib.parse import urlparse
+from urllib.parse import urlparse 
+import random
 
 load_dotenv()  
 tavilyapikey = os.getenv("TAVILYAPI")   
@@ -45,11 +46,8 @@ graph = StateGraph(StateSchema)
 qwenSub = ChatOllama(model="qwen3.5:4b") 
 
 
-zoomInfoPromptFullContacts = """ 
 
 
-
-"""
 
 
 
@@ -58,20 +56,82 @@ def initalize_agent(state: StateSchema) -> dict:
     inital_agent_response = agent.invoke([agentPrompt]) 
     return {}  
 
-async def UseZoomInfoTools(state: StateSchema) -> dict: 
-    zmTools = await fetchZoomInfoTools() 
-    zoomInfoAgent = agent.with_structured_output() 
-    zoomInfoAgent = agent.bind_tools(zmTools) 
-    results = await zoomInfoAgent.ainvoke([zoomInfoPromptFullContacts]) 
-    #check db/add db 
-    #also in the dictionary add to the Contact 
-    return {"zoom_info_calls": state["zoom_info_calls"] + 1}
 
-    ...
+#make enrich function to pass the names and we do that only if we havent seen the lead already 
+
+def getFullContact(state: StateSchema) -> dict:
+    company_types = {1: "Manufacturing", 2: "Church", 3: "Hospitality", 4: "Retail"} 
+    states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"} 
+
+    companyTypeKey = random.randint(1, 4)  
+    stateKey = random.randint(1, 4)
+    chosenIndustry = company_types.get(companyTypeKey) 
+    chosenState = states.get(stateKey)  
+     
+
+    if state["zm_access_token"]: 
+        response = requests.post(
+            url="https://api.zoominfo.com/gtm/oauth/v1/token", 
+            headers={"Accept": "application/json"},
+            data={"grant_type": "client_credentials", "client_id": zmClientId, "client_secret": zmClientSecret}, 
+            timeout=30 
+        ) 
+        print(response)
+        data = response.json() 
+        token = data["access_token"] 
+        url = "https://api.zoominfo.com/gtm/data/v1/contacts/search" 
+        headers = {
+            "accept": "application/vnd.api+json",
+            "content-type": "application/vnd.api+json",
+            "Authorization": f"Bearer {token}"
+        }
+        payload = {
+        "data": {
+            "type": "ContactSearch",
+            "attributes": {
+                "managementLevel": "C Level Exec, VP Level Exec,Director",
+                "executivesOnly": True,
+                "contactAccuracyScoreMin": "75",
+                "contactAccuracyScoreMax": "99", 
+                "employeeRangeMin": "20", 
+                "employeeRangeMax": "800", 
+                "state": chosenState, 
+                "industryCodes": "Manufacturing,Hospitality,Retail"
+                }
+            }
+        }
+        response2 = requests.post(url, json=payload, headers=headers, timeout=30)
+        print(response2) 
+        jsonResponse = response2.json() 
+        for record in data["data"]: 
+            comapny_name = record["attributes"]["company"]["name"] 
+            first_name = record["firstName"] 
+            last_name = record["lastName"] 
+            role = record["jobTitle"] 
+
+            currentLead = Contact(comapny_name, first_name, last_name, role, "Zoom Info")  
+            if isDuplicateLead(currentLead): 
+                continue 
+            else: 
+                
 
 
 
 
+
+
+            ...
+
+def enrichContactZoomInfo(contact_information: Contact): 
+    fn = contact_information.lead_first_name 
+    ln = contact_information.lead_last_name
+
+    ... 
+    #enriches the info 
+        
+
+
+# then goes to zoom info again ce. 
 
 def useZoomInfoAgain(state: StateSchema) -> dict: 
     if state["zoom_info_calls"] < 3: 
@@ -106,22 +166,7 @@ def get_zoominfo_token() -> str:
     return r.json()["access_token"]
 
 
-async def fetchZoomInfoTools():
-    client = Client("https://mcp.zoominfo.com/mcp", auth=get_zoominfo_token())
-    async with MCPAdapter(client) as adapter:
-        tools = await adapter.list_tools() 
-    return tools 
 
-
-
-
-
-async def getApolloTools():  
-    transport = StreamableHttpTransport(url="https://mcp.apollo.io/mcp", headers={"X-Api-Key": os.getenv("APOLLOAPIKEY")}) 
-    async with Client(transport) as c: 
-        tools = await c.list_tools() 
-    return tools
-     
 
 async def composioOutlook():   
     transport = StreamableHttpTransport(url="https://connect.composio.dev/mcp", headers={"x-consumer-api-key": "ck_IPiV5AV1ejKX_m6QJmY-"}) 
@@ -154,6 +199,26 @@ def checkDuplicateLead(state: StateSchema):
     else: 
         {"is_current_lead_duplicate": False} 
 
+
+def isDuplicateLead(contact: Contact) -> bool: 
+    first_name = contact.lead_first_name 
+    last_name = contact.lead_last_name 
+    company_name = contact.company 
+    sbc = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY")) 
+    response = sbc.table("new_leads").select("*").eq("company_name", contact.company).execute()
+    if response.data: 
+        return True 
+    return False   
+
+def isInHubspot(contact: Contact):  
+    ...
+     
+
+
+
+
+
+
 def addLeadtoDB(state: StateSchema): 
     supabase_client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY"))  
     full_name = state["add_current_lead"].lead_first_name + state["add_current_lead"].lead_last_name
@@ -166,7 +231,13 @@ def addLeadtoDB(state: StateSchema):
         response = supabase_client.table("new_leads").insert(record).execute()  
         return True
     except: 
-        return False 
+        return False  
+
+def insertLead(contact: Contact): 
+    sbc = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY")) 
+    record = {"lead_name": contact.lead_first_name+contact.lead_last_name, "company_name": contact.company, "lead_role": contact.company_role}
+    result = sbc.table("new_leads").insert(record).execute()    
+
 
 def findemailWithHunter(state: StateSchema): 
     first_name = state["lead_to_get_email"].lead_first_name 
@@ -459,22 +530,7 @@ Qualify node which is where crawl4ai comes in to see if they can qualify
 or subagents
 """
 
-graph.add_node(initalize_agent) 
-graph.add_node(UseZoomInfoTools)   
-graph.add_node(getNamesFromZoomInfo)
 
-
-graph.add_edge(START, "initalize_agent") 
-graph.add_edge("initalize_agent", "UseZoomInfoTools") 
-graph.add_conditional_edges( 
-    "UseZoomInfoTools", 
-    useZoomInfoAgain, 
-    {"use_again": "UseZoomInfoTools", "next_tool": "getNamesFromZoomInfo"} 
-)
-
-graph.add_edge("getNamesFromZoomInfo", END)
-app = graph.compile()  
-app.get_graph().draw_png("workflow.png") 
 
 
 

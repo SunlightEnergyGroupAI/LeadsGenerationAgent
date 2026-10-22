@@ -1,7 +1,8 @@
 from typing import TypedDict, Literal, Annotated
 from dataclasses import dataclass
 from contact import Contact 
-import operator
+import operator 
+from typing import Any
 
 """
 MONTHLY BASIS CAPS
@@ -25,6 +26,7 @@ class StateSchema(TypedDict):
     added_lead: bool 
     is_current_lead_duplicate: bool 
     lead_to_get_email: Contact 
+    zm_access_token: Any
     
 
 

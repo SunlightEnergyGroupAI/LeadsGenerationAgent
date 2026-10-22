@@ -8,6 +8,13 @@ class Contact:
     lead_last_name: str
     company_role: str | None
     data_source: Literal["Zoom Info", "Zoom info & Hunter.io", "Apollo"] | None
-    fit_score: int | None
-    fit_score_reasoning: str | None
+    fit_score: int | None 
+    phone: str | None 
+    email: str | None
+    fit_score_reasoning: str | None 
+    state: str | None
+    industry: str | None
+
+
+
 
