@@ -38,6 +38,7 @@ tavilyapikey = os.getenv("TAVILYAPI")
 hunterapikey = os.getenv("HUNTERAPI") 
 zmClientId = os.getenv("ZOOMINFOCLIENTID") 
 zmClientSecret = os.getenv("ZOOMINFOCLIENTSECRET") 
+hubspotKey =  os.getenv("HUBSPOT_TOKEN")
 
 config = {"configurable": {"thread_id": "1"}} 
 checkpointer = InMemorySaver() 
@@ -66,24 +67,66 @@ def getFullContact(state: StateSchema) -> dict:
     companyTypeKey = random.randint(1, 4)  
     stateKey = random.randint(1, 4)
     chosenIndustry = company_types.get(companyTypeKey) 
-    chosenState = states.get(stateKey)  
+    chosenState = states.get(stateKey) 
+
+    uniqueContacts: list[Contact] = [] 
      
 
-    if state["zm_access_token"]: 
+    if not state["zm_access_token"]: 
         response = requests.post(
             url="https://api.zoominfo.com/gtm/oauth/v1/token", 
             headers={"Accept": "application/json"},
-            data={"grant_type": "client_credentials", "client_id": zmClientId, "client_secret": zmClientSecret}, 
+            json={"grant_type": "client_credentials", "client_id": zmClientId, "client_secret": zmClientSecret}, 
             timeout=30 
         ) 
         print(response)
         data = response.json() 
         token = data["access_token"] 
-        url = "https://api.zoominfo.com/gtm/data/v1/contacts/search" 
+        url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]=1&page[size]=1"
+ 
         headers = {
             "accept": "application/vnd.api+json",
             "content-type": "application/vnd.api+json",
             "Authorization": f"Bearer {token}"
+        }
+        payload = {
+        "data": {
+            "type": "ContactSearch",
+            "attributes": {
+                "managementLevel": "C Level Exec, VP Level Exec,Director",
+                "executivesOnly": True,
+                "contactAccuracyScoreMin": "75",
+                "contactAccuracyScoreMax": "99", 
+                "employeeRangeMin": "20", 
+                "employeeRangeMax": "800", 
+                "state": chosenState, 
+                "industryCodes": "Manufacturing,Hospitality,Retail"
+                }
+            }
+        }
+        response2 = requests.post(url, json=payload, headers=headers, timeout=30)
+        print(response2) 
+        jsonResponse = response2.json() 
+        for record in jsonResponse["data"]:  
+            #fix look at dictionary and fix 
+            comapny_name = record["attributes"]["company"]["name"] 
+            first_name = record["firstName"] 
+            last_name = record["lastName"] 
+            role = record["jobTitle"] 
+
+            currentLead = Contact(comapny_name, first_name, last_name, role, "Zoom Info")  
+            if isInHubspot(currentLead): 
+                continue 
+            else: 
+                uniqueContacts.append(currentLead)
+                insertLead(currentLead)
+        return {"leads": uniqueContacts, "zm_access_token": token}  
+    else: 
+        url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]=1&page[size]=1"
+        headers = {
+            "accept": "application/vnd.api+json",
+            "content-type": "application/vnd.api+json",
+            "Authorization": state.get("zm_access_token")
         }
         payload = {
         "data": {
@@ -110,17 +153,19 @@ def getFullContact(state: StateSchema) -> dict:
             role = record["jobTitle"] 
 
             currentLead = Contact(comapny_name, first_name, last_name, role, "Zoom Info")  
-            if isDuplicateLead(currentLead): 
+            if isInHubspot(currentLead): 
                 continue 
             else: 
-                
+                uniqueContacts.append(currentLead)
+                insertLead(currentLead)
+        return {"leads": uniqueContacts} 
 
 
 
+    
 
 
 
-            ...
 
 def enrichContactZoomInfo(contact_information: Contact): 
     fn = contact_information.lead_first_name 
@@ -144,28 +189,9 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
     ...
 
 
-def getApolloTools(state: StateSchema) -> dict: 
-    ... 
 
 def getContactsApollo(state: StateSchema) -> dict:  
     ...
-
-
-
-
-
-
-def get_zoominfo_token() -> str:
-    r = requests.post(
-        "https://api.zoominfo.com/gtm/oauth/v1/token",
-        auth=(zmClientId, zmClientSecret),
-        data={"grant_type": "client_credentials"},
-        timeout=30,
-    )
-    r.raise_for_status()
-    return r.json()["access_token"]
-
-
 
 
 async def composioOutlook():   
@@ -173,21 +199,6 @@ async def composioOutlook():
     async with Client(transport) as c: 
         tools = await c.list_tools() 
     return tools
-
-
-
-    
-    
-
-
-
-
-
-
-
- 
-
-
 
 
 def checkDuplicateLead(state: StateSchema): 
@@ -210,28 +221,10 @@ def isDuplicateLead(contact: Contact) -> bool:
         return True 
     return False   
 
-def isInHubspot(contact: Contact):  
+def isInHubspot(contact: Contact) -> bool: 
+
     ...
-     
 
-
-
-
-
-
-def addLeadtoDB(state: StateSchema): 
-    supabase_client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY"))  
-    full_name = state["add_current_lead"].lead_first_name + state["add_current_lead"].lead_last_name
-    record = {
-        "lead_name": full_name, 
-        "company_name": state["add_current_lead"].company, 
-        "lead_role": state["add_current_lead"].company_role
-    } 
-    try:   
-        response = supabase_client.table("new_leads").insert(record).execute()  
-        return True
-    except: 
-        return False  
 
 def insertLead(contact: Contact): 
     sbc = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY")) 
@@ -248,7 +241,22 @@ def findemailWithHunter(state: StateSchema):
     data = response.json() 
     lead_email = data["data"]["email"] 
     return lead_email  
-   
+
+
+
+graph.add_node(getFullContact) 
+graph.add_node(initalize_agent) 
+graph.add_node(getNamesFromZoomInfo)  
+graph.add_node(getContactsApollo) 
+graph.add_node(composioOutlook) 
+graph.add_node(findemailWithHunter) 
+
+graph.add_edge(START, END)
+
+app = graph.compile(checkpointer)  
+app.get_graph().draw_png("workflow.png")
+
+
 
 
 
