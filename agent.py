@@ -53,9 +53,7 @@ qwenSub = ChatOllama(model="qwen3.5:4b")
 
 
 def initalize_agent(state: StateSchema) -> dict:
-    agentPrompt = SystemMessage("systemPrompt")
-    inital_agent_response = agent.invoke([agentPrompt]) 
-    return {}  
+    return {} 
 
 
 def getFullContact(state: StateSchema) -> dict:
@@ -74,7 +72,6 @@ def getFullContact(state: StateSchema) -> dict:
         tokenResponse.raise_for_status()
         token = tokenResponse.json()["access_token"]
 
-    # one lead per pass; move to the next result each pass so we don't get the same top contact
     page = state.get("zoom_info_calls", 0) + 1
     url = f"https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]={page}&page[size]=1"
     headers = {
@@ -159,24 +156,36 @@ def useZoomInfoAgain(state: StateSchema) -> dict:
         return "next_tool"  
 
 
-def getNamesFromZoomInfo(state: StateSchema) -> dict: 
+def getNamesFromZoomInfo(state: StateSchema) -> dict:
     states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"}
-    chosenState = states.get(random.randint(1, 4)) 
-    token = state.get("zm_access_token")   
-    url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[size]=25" 
+    chosenState = states.get(random.randint(1, 4))
+    nameOnlyContacts: list[Contact] = []
+
+    token = state.get("zm_access_token")
+    if not token:
+        tokenResponse = requests.post(
+            url="https://api.zoominfo.com/gtm/oauth/v1/token",
+            headers={"Accept": "application/json"},
+            json={"grant_type": "client_credentials", "client_id": zmClientId, "client_secret": zmClientSecret},
+            timeout=30
+        )
+        tokenResponse.raise_for_status()
+        token = tokenResponse.json()["access_token"]
+
+    page = state.get("names_page", 0) + 1
+    url = f"https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]={page}&page[size]=5"
     headers = {
         "accept": "application/vnd.api+json",
         "content-type": "application/vnd.api+json",
         "Authorization": f"Bearer {token}"
-    } 
-
-    json_data = {
+    }
+    payload = {
         "data": {
             "type": "ContactSearch",
             "attributes": {
                 "managementLevel": "C Level Exec, VP Level Exec,Director",
                 "executivesOnly": True,
-                "contactAccuracyScoreMin": "70",
+                "contactAccuracyScoreMin": "75",
                 "contactAccuracyScoreMax": "99",
                 "employeeRangeMin": "20",
                 "employeeRangeMax": "800",
@@ -184,33 +193,79 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
                 "industryCodes": "Manufacturing,Hospitality,Retail"
             }
         }
+    }
+    searchResponse = requests.post(url, json=payload, headers=headers, timeout=30)
+    searchResponse.raise_for_status()
+    seen_companies = {c.company for c in state.get("leads", [])}
+    seen_companies |= {c.company for c in state.get("leads_to_get_email", [])}
+
+    for record in searchResponse.json()["data"]:
+        attrs = record["attributes"]
+        currLead = Contact(
+            company=attrs["company"]["name"],
+            lead_first_name=attrs["firstName"],
+            lead_last_name=attrs["lastName"],
+            company_role=attrs.get("jobTitle"),
+            data_source="Zoom Info",
+            state=chosenState,
+            id=record["id"]
+        )
+        if currLead.company in seen_companies:
+            continue
+        elif isInHubspot(currLead):
+            continue
+        seen_companies.add(currLead.company)
+        nameOnlyContacts.append(currLead)
+
+    return {
+        "leads_to_get_email": nameOnlyContacts,
+        "zm_access_token": token,
+        "names_page": page
     } 
 
-    response = requests.post(
-        url,
-        headers, 
-        json_data
-    ) 
-    data = response.json()  
-     
+def findemailWithHunter(state: StateSchema) -> dict: 
+    contacts: list[Contact] = []  
+    url = "https://api.hunter.io/v2/email-finder"
+    for contact in state["leads_to_get_email"]:
+        first_name = contact.lead_first_name 
+        last_name = contact.lead_last_name 
+        company_name = contact.company  
+        role = contact.company_role  
+        person_state = contact.state
+        response = requests.get(url, params={"first_name": first_name, "last_name": last_name, "company": company_name, "api_key": hunterapikey}, timeout=30) 
+        data = response.json() 
+        lead_email = data["data"]["email"] 
+        contacts.append(Contact(company_name, first_name, last_name, role, email=lead_email, state=person_state)) 
+    return {"leads": contacts, "hunter_io_calls": state.get("hunter_io_calls", 0)+1}  
+
+
+
+def leadsToCSV(state: StateSchema): 
     
+    dataframe = pd.DataFrame({
+        "company": [contact.company for contact in state["leads"]], 
+        "lead_first_name": [contact.lead_first_name for contact in state["leads"]], 
+        "lead_last_name": [contact.lead_last_name for contact in state["leads"]], 
+        "company_role": [contact.company_role for contact in state["leads"]],
+        "phone": [contact.phone for contact in state["leads"]], 
+        "email": [contact.email for contact in state["leads"]], 
+        "state": [contact.state for contact in state["leads"]], 
+        "data_source": [contact.data_source for contact in state["leads"]]
 
+    })  
+    dataframe.to_csv("newleads.csv", index=False)  
+    return {}
 
-     
-
-    return 
-
-
-
-def getContactsApollo(state: StateSchema) -> dict:  
-    ...
 
 
 async def composioOutlook():   
     transport = StreamableHttpTransport(url="https://connect.composio.dev/mcp", headers={"x-consumer-api-key": "ck_IPiV5AV1ejKX_m6QJmY-"}) 
-    async with Client(transport) as c: 
+    async with MCPAdapter(transport) as c: 
         tools = await c.list_tools() 
-    return tools
+    print([tool.name for tool in tools])  
+
+asyncio.run(composioOutlook())
+    
 
 
 def hubspotSearch(objectType: str, propertyName: str, value: str) -> list: 
@@ -240,15 +295,7 @@ def isInHubspot(contact: Contact) -> bool:
     leads = hubspotSearch("leads", "associations.company", companies[0]["id"])
     return len(leads) > 0
 
-def findemailWithHunter(state: StateSchema): 
-    first_name = state["lead_to_get_email"].lead_first_name 
-    last_name = state["lead_to_get_email"].lead_last_name 
-    company_name = state["lead_to_get_email"].company   
-    url = "https://api.hunter.io/v2/email-finder"
-    response = requests.get(url, params={"first_name": first_name, "last_name": last_name, "company": company_name, "api_key": hunterapikey}) 
-    data = response.json() 
-    lead_email = data["data"]["email"] 
-    return lead_email  
+
 
 async def searchWeb(state: StateSchema):
     """
@@ -381,6 +428,23 @@ BLOCKED = ("yelp.", "linkedin.", "facebook.", "indeed.", "glassdoor.", "yellowpa
            "tripadvisor.", "zoominfo.", "mapquest.", "bbb.org", "wikipedia.", "reddit.",
            "instagram.", "youtube.", "manta.", "dnb.com", "expedia.", "booking.com")
 CONTACT_WORDS = ("contact", "about", "team", "leadership", "staff", "people", "management")
+
+
+graph.add_node(initalize_agent) 
+graph.add_node(getFullContact) 
+graph.add_node(getNamesFromZoomInfo) 
+graph.add_node(findemailWithHunter) 
+graph.add_node(leadsToCSV) 
+graph.add_node(composioOutlook) 
+
+
+graph.add_edge(START, "initalize_agent") 
+graph.add_edge("initalize_agent", "getFullContact") 
+graph.add_edge("getFullContact", "getNamesFromZoomInfo") 
+graph.add_edge("getNamesFromZoomInfo", "findemailWithHunter") 
+graph.add_edge("findemailWithHunter", "leadsToCSV") 
+graph.add_edge("leadsToCSV", "composioOutlook")
+graph.add_edge("composioOutlook", END) 
 
 
 
