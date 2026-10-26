@@ -58,7 +58,6 @@ def initalize_agent(state: StateSchema) -> dict:
     return {}  
 
 
-
 def getFullContact(state: StateSchema) -> dict:
     states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"}
     chosenState = states.get(random.randint(1, 4))
@@ -74,7 +73,10 @@ def getFullContact(state: StateSchema) -> dict:
         )
         tokenResponse.raise_for_status()
         token = tokenResponse.json()["access_token"]
-    url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]=1&page[size]=1"
+
+    # one lead per pass; move to the next result each pass so we don't get the same top contact
+    page = state.get("zoom_info_calls", 0) + 1
+    url = f"https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]={page}&page[size]=1"
     headers = {
         "accept": "application/vnd.api+json",
         "content-type": "application/vnd.api+json",
@@ -97,8 +99,7 @@ def getFullContact(state: StateSchema) -> dict:
     }
     searchResponse = requests.post(url, json=payload, headers=headers, timeout=30)
     searchResponse.raise_for_status()
-
-    seen_companies = {contact.company for contact in state.get("leads", [])}
+    seen_companies = {c.company for c in state.get("leads", [])}
 
     for record in searchResponse.json()["data"]:
         attrs = record["attributes"]
@@ -120,7 +121,7 @@ def getFullContact(state: StateSchema) -> dict:
     return {
         "leads": uniqueContacts,
         "zm_access_token": token,
-        "zoom_info_calls": state.get("zoom_info_calls", 0) + 1
+        "zoom_info_calls": page
     }
 
 def enrichContactZoomInfo(contact: Contact, token: str) -> Contact:
@@ -175,7 +176,7 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
             "attributes": {
                 "managementLevel": "C Level Exec, VP Level Exec,Director",
                 "executivesOnly": True,
-                "contactAccuracyScoreMin": "75",
+                "contactAccuracyScoreMin": "70",
                 "contactAccuracyScoreMax": "99",
                 "employeeRangeMin": "20",
                 "employeeRangeMax": "800",
@@ -189,7 +190,10 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
         url,
         headers, 
         json_data
-    )
+    ) 
+    data = response.json()  
+     
+    
 
 
      

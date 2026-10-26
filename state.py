@@ -25,8 +25,9 @@ class StateSchema(TypedDict):
     add_current_lead: Contact 
     added_lead: bool 
     is_current_lead_duplicate: bool 
-    lead_to_get_email: Contact 
-    zm_access_token: Any
+    leads_to_get_email: list[Contact] 
+    zm_access_token: Any 
+    names_page: int
     
 
 
