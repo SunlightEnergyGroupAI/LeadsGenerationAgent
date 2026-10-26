@@ -58,136 +58,98 @@ def initalize_agent(state: StateSchema) -> dict:
     return {}  
 
 
-#make enrich function to pass the names and we do that only if we havent seen the lead already 
 
 def getFullContact(state: StateSchema) -> dict:
-    company_types = {1: "Manufacturing", 2: "Church", 3: "Hospitality", 4: "Retail"} 
-    states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"} 
+    states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"}
+    chosenState = states.get(random.randint(1, 4))
+    uniqueContacts: list[Contact] = []
 
-    companyTypeKey = random.randint(1, 4)  
-    stateKey = random.randint(1, 4)
-    chosenIndustry = company_types.get(companyTypeKey) 
-    chosenState = states.get(stateKey) 
-
-    uniqueContacts: list[Contact] = [] 
-     
-
-    if not state["zm_access_token"]: 
-        response = requests.post(
-            url="https://api.zoominfo.com/gtm/oauth/v1/token", 
+    token = state.get("zm_access_token")
+    if not token:
+        tokenResponse = requests.post(
+            url="https://api.zoominfo.com/gtm/oauth/v1/token",
             headers={"Accept": "application/json"},
-            json={"grant_type": "client_credentials", "client_id": zmClientId, "client_secret": zmClientSecret}, 
-            timeout=30 
-        ) 
-        print(response)
-        data = response.json() 
-        token = data["access_token"] 
-        url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]=1&page[size]=1"
- 
-        headers = {
-            "accept": "application/vnd.api+json",
-            "content-type": "application/vnd.api+json",
-            "Authorization": f"Bearer {token}"
-        }
-        payload = {
+            json={"grant_type": "client_credentials", "client_id": zmClientId, "client_secret": zmClientSecret},
+            timeout=30
+        )
+        tokenResponse.raise_for_status()
+        token = tokenResponse.json()["access_token"]
+    url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]=1&page[size]=1"
+    headers = {
+        "accept": "application/vnd.api+json",
+        "content-type": "application/vnd.api+json",
+        "Authorization": f"Bearer {token}"
+    }
+    payload = {
         "data": {
             "type": "ContactSearch",
             "attributes": {
                 "managementLevel": "C Level Exec, VP Level Exec,Director",
                 "executivesOnly": True,
                 "contactAccuracyScoreMin": "75",
-                "contactAccuracyScoreMax": "99", 
-                "employeeRangeMin": "20", 
-                "employeeRangeMax": "800", 
-                "state": chosenState, 
+                "contactAccuracyScoreMax": "99",
+                "employeeRangeMin": "20",
+                "employeeRangeMax": "800",
+                "state": chosenState,
                 "industryCodes": "Manufacturing,Hospitality,Retail"
-                }
             }
         }
-        response2 = requests.post(url, json=payload, headers=headers, timeout=30)
-        print(response2) 
-        jsonResponse = response2.json() 
-        for record in jsonResponse["data"]:  
-            outer_dictionary = record["attributes"] 
-            zm_id = outer_dictionary["id"] 
-            company_dict = outer_dictionary["company"] 
-            company_name = company_dict["name"] 
-            firstName = outer_dictionary["firstName"] 
-            lastName = outer_dictionary["lastName"] 
+    }
+    searchResponse = requests.post(url, json=payload, headers=headers, timeout=30)
+    searchResponse.raise_for_status()
 
-            currentLead = Contact(comapny_name, firstName, lastName, role, "Zoom Info", id=zm_id)  
-            if isInHubspot(currentLead): 
-                continue 
-            else:
-                data = enrichContactZoomInfo(currentLead) 
-                #make the data into a new instance of contact type/object and then append to the uniqueContacts list 
-                # at end of func update the state of the agent/workflow and move to should continue  
+    seen_companies = {contact.company for contact in state.get("leads", [])}
 
-                uniqueContacts.append(currentLead) 
-                enrichContactZoomInfo(currentLead)
-        return {"leads": uniqueContacts, "zm_access_token": token}  
-    else: 
-        url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]=1&page[size]=1"
-        headers = {
-            "accept": "application/vnd.api+json",
-            "content-type": "application/vnd.api+json",
-            "Authorization": state.get("zm_access_token")
-        }
-        payload = {
+    for record in searchResponse.json()["data"]:
+        attrs = record["attributes"]
+        currLead = Contact(
+            company=attrs["company"]["name"],
+            lead_first_name=attrs["firstName"],
+            lead_last_name=attrs["lastName"],
+            company_role=attrs.get("jobTitle"),
+            state=chosenState,
+            id=record["id"]
+        )
+        if currLead.company in seen_companies:
+            continue
+        elif isInHubspot(currLead):
+            continue
+        seen_companies.add(currLead.company)
+        uniqueContacts.append(enrichContactZoomInfo(currLead, token))
+
+    return {
+        "leads": uniqueContacts,
+        "zm_access_token": token,
+        "zoom_info_calls": state.get("zoom_info_calls", 0) + 1
+    }
+
+def enrichContactZoomInfo(contact: Contact, token: str) -> Contact:
+    url = "https://api.zoominfo.com/gtm/data/v1/contacts/enrich"
+    headers = {
+        "accept": "application/vnd.api+json",
+        "content-type": "application/vnd.api+json",
+        "Authorization": f"Bearer {token}"
+    }
+    payload = {
         "data": {
-            "type": "ContactSearch",
+            "type": "ContactEnrich",
             "attributes": {
-                "managementLevel": "C Level Exec, VP Level Exec,Director",
-                "executivesOnly": True,
-                "contactAccuracyScoreMin": "75",
-                "contactAccuracyScoreMax": "99", 
-                "employeeRangeMin": "20", 
-                "employeeRangeMax": "800", 
-                "state": chosenState, 
-                "industryCodes": "Manufacturing,Hospitality,Retail"
-                }
+                "outputFields": ["email", "phone", "mobilePhone"],
+                "matchPersonInput": [{"personId": int(contact.id)}]
             }
         }
-        response2 = requests.post(url, json=payload, headers=headers, timeout=30)
-        print(response2) 
-        jsonResponse = response2.json() 
-        for record in data["data"]: 
-            comapny_name = record["attributes"]["company"]["name"] 
-            first_name = record["firstName"] 
-            last_name = record["lastName"] 
-            role = record["jobTitle"] 
-
-            currentLead = Contact(comapny_name, first_name, last_name, role, "Zoom Info")  
-            if isInHubspot(currentLead): 
-                continue 
-            else: 
-                uniqueContacts.append(currentLead)
-        return {"leads": uniqueContacts} 
+    }
+    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    response.raise_for_status()
+    results = response.json().get("data", [])
+    if results:
+        attrs = results[0].get("attributes", {})
+        contact.email = attrs.get("email")
+        contact.phone = attrs.get("phone") or attrs.get("mobilePhone")
+    contact.data_source = "Zoom Info"
+    return contact
 
 
-
-    
-
-
-
-
-def enrichContactZoomInfo(contact_information: Contact): 
-    fn = contact_information.lead_first_name 
-    ln = contact_information.lead_last_name 
-    id = contact_information.id  
-    companyName = contact_information.company 
-
-    url = "https://api.zoominfo.com/gtm/data/v1/contacts/enrich" 
-    outputFields = {"outputFields": ["email","phone"]} 
-    
-    
-
-    ... 
-    #enriches the info 
-        
-
-
-# then goes to zoom info again ce. 
 
 def useZoomInfoAgain(state: StateSchema) -> dict: 
     if state["zoom_info_calls"] < 3: 
@@ -196,8 +158,43 @@ def useZoomInfoAgain(state: StateSchema) -> dict:
         return "next_tool"  
 
 
-def getNamesFromZoomInfo(state: StateSchema) -> dict:  
-    ...
+def getNamesFromZoomInfo(state: StateSchema) -> dict: 
+    states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"}
+    chosenState = states.get(random.randint(1, 4)) 
+    token = state.get("zm_access_token")   
+    url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[size]=25" 
+    headers = {
+        "accept": "application/vnd.api+json",
+        "content-type": "application/vnd.api+json",
+        "Authorization": f"Bearer {token}"
+    } 
+
+    json_data = {
+        "data": {
+            "type": "ContactSearch",
+            "attributes": {
+                "managementLevel": "C Level Exec, VP Level Exec,Director",
+                "executivesOnly": True,
+                "contactAccuracyScoreMin": "75",
+                "contactAccuracyScoreMax": "99",
+                "employeeRangeMin": "20",
+                "employeeRangeMax": "800",
+                "state": chosenState,
+                "industryCodes": "Manufacturing,Hospitality,Retail"
+            }
+        }
+    } 
+
+    response = requests.post(
+        url,
+        headers, 
+        json_data
+    )
+
+
+     
+
+    return 
 
 
 
@@ -212,38 +209,32 @@ async def composioOutlook():
     return tools
 
 
-def checkDuplicateLead(state: StateSchema): 
-    current_company_lead = state["lead_to_check"].company
-    supabase_client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY"))
-    response = supabase_client.table("new_leads").select("*").eq("company_name", current_company_lead).execute()
-    if response.data: 
-        {"is_current_lead_duplicate": True} 
-    else: 
-        {"is_current_lead_duplicate": False} 
+def hubspotSearch(objectType: str, propertyName: str, value: str) -> list: 
+    HUBSPOT_URL = "https://api.hubapi.com/crm/objects/2026-09" 
+    headers = {
+        "Authorization": f"Bearer {hubspotKey}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "filterGroups": [
+            {"filters": [{"propertyName": propertyName, "operator": "EQ", "value": value}]}
+        ],
+        "properties": [],
+        "sorts": [],
+        "limit": 1,
+        "after": "0"
+    }
+    response = requests.post(f"{HUBSPOT_URL}/{objectType}/search", headers=headers, json=body, timeout=30)
+    response.raise_for_status()
+    return response.json().get("results", [])
 
 
-def isDuplicateLead(contact: Contact) -> bool: 
-    first_name = contact.lead_first_name 
-    last_name = contact.lead_last_name 
-    company_name = contact.company 
-    sbc = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY")) 
-    response = sbc.table("new_leads").select("*").eq("company_name", contact.company).execute()
-    if response.data: 
-        return True 
-    return False   
-
-def isInHubspot(contact: Contact) -> bool: 
-    token = os.getenv("HUBSPOT_TOKEN") 
-    url = ""
-
-    ...
-
-
-def insertLead(contact: Contact): 
-    sbc = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASEAPIKEY")) 
-    record = {"lead_name": contact.lead_first_name+contact.lead_last_name, "company_name": contact.company, "lead_role": contact.company_role}
-    result = sbc.table("new_leads").insert(record).execute()    
-
+def isInHubspot(contact: Contact) -> bool:
+    companies = hubspotSearch("companies", "name", contact.company.strip())
+    if not companies:
+        return False
+    leads = hubspotSearch("leads", "associations.company", companies[0]["id"])
+    return len(leads) > 0
 
 def findemailWithHunter(state: StateSchema): 
     first_name = state["lead_to_get_email"].lead_first_name 
@@ -254,12 +245,6 @@ def findemailWithHunter(state: StateSchema):
     data = response.json() 
     lead_email = data["data"]["email"] 
     return lead_email  
-
-
-def makeCSV(state: StateSchema):  
-    #get all first names, last names, company, role, etc and make into dataframe and then make it into a csv that always gets overwritten each time 
-    #and then make that sent via outlook mcp using composio
-    df = pd.DataFrame()
 
 async def searchWeb(state: StateSchema):
     """
@@ -395,24 +380,6 @@ CONTACT_WORDS = ("contact", "about", "team", "leadership", "staff", "people", "m
 
 
 
-graph.add_node(initalize_agent) 
-graph.add_node(getNamesFromZoomInfo)  
-graph.add_node(getContactsApollo)  
-graph.add_node(getFullContact)
-graph.add_node(composioOutlook) 
-graph.add_node(findemailWithHunter)  
-graph.add_node(searchWeb)
-
-
-graph.add_edge(START, "initalize_agent") 
-graph.add_edge("initalize_agent", "getFullContact") 
-graph.add_edge("getFullContact", "getNamesFromZoomInfo") 
-graph.add_edge("getNamesFromZoomInfo", "findemailWithHunter") 
-graph.add_edge("findemailWithHunter", "getContactsApollo") 
-graph.add_edge("getContactsApollo", "searchWeb") 
-graph.add_edge("searchWeb", "composioOutlook") 
-app = graph.compile(checkpointer)  
-app.get_graph().draw_png("workflow.png")
 
 
 
@@ -421,31 +388,6 @@ app.get_graph().draw_png("workflow.png")
 
 
 
-
-
-
-
-
-    
-
-   
-
-    
-
-    # tools = await MCPAdapter(client(mcplink, "ck_IPiV5AV1ejKX_m6QJmY-")).list_tools() 
-    # return [tool.name for tool in tools] 
-
-
-# results = asyncio.run(getInfoTest())
-    
-
-    # time.sleep(125) #used to avoid rate limit however can introduce retryPolicy middleware down the line instead 
-    # tavily_results = tavilyEngine.search(sq, "advanced", max_results=10)
- 
-
-
-# res = asyncio.run(getInfoTest()) 
-# print(res)
 
 
 
@@ -466,102 +408,6 @@ app.get_graph().draw_png("workflow.png")
     
 
     
-
-
-
-
-
-
-
-
-
-async def getInfo(searchQuery: str, searchDepth: Literal["basic", "fast", "ultra-fast", "advanced"], maxResults: int) -> list[Source]: 
-    """
-    Gets information from the web/internet and returns the most relevant information
-    Multiple search engines are used in order to get information those being the following: Bing, Yandex, Tavily
-
-    For the search query ut
-
-    Args:
-    - searchQuery: str (the query that gets placed into the search engine)
-    - searchDepth: str (Controls the depth of the search when using TavilyClient)
-    - maxResults: the amount of sites we get back in returns from a query
-
-    Returns:
-    - list[Source]: one Source per unique url, with the crawled page content (markdown)
-      in `information` and the url in `sourceName`
-    """ 
-    tavilyEngine = TavilyClient(api_key=tavilyapikey) 
-
-    searchEngine = DDGS() 
-   
-    bing_results = searchEngine.text(searchQuery, max_results=maxResults, backend="bing") 
-    yandex_results = searchEngine.text(searchQuery, max_results=maxResults, backend="yandex") 
-    # time.sleep(125) #used to avoid rate limit however can introduce retryPolicy middleware down the line instead 
-
-    if searchDepth == "advanced": 
-        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
-    elif searchDepth == "basic":
-        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=20)
-    elif searchDepth == "fast": 
-        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=20)
-    elif searchDepth == "ultra-fast": 
-        tavily_results = tavilyEngine.search(searchQuery, search_depth=searchDepth, max_results=5)
-
-    sources = [] 
-    seen = set()
-
-    async with AsyncWebCrawler() as crawler:
-        for r in bing_results:
-            if r["href"] in seen:
-                continue 
-            else: 
-                seen.add(r["href"])
-                page = await crawler.arun(url=r["href"])
-                information = str(page.markdown) if page.success and page.markdown else r.get("body", "")
-                sources.append(Source(information=information, sourceName=r["href"]))
-
-        for r in yandex_results:
-            if r["href"] in seen:
-                continue
-            seen.add(r["href"])
-            page = await crawler.arun(url=r["href"])
-            information = str(page.markdown) if page.success and page.markdown else r.get("body", "")
-            sources.append(Source(information=information, sourceName=r["href"]))
-
-        
-        for r in tavily_results.get("results", []):
-            if r["url"] in seen:
-                continue
-            seen.add(r["url"])
-            page = await crawler.arun(url=r["url"])
-            information = str(page.markdown) if page.success and page.markdown else r.get("content", "")
-            sources.append(Source(information=information, sourceName=r["url"]))
-
-    return sources
-
-
-
-
-
-
-
-
-
-"""
-GRAPH DESIGN 
-
-START -> uses zoom info to get the 83 contacts (try except)
--> uses apollo to find more contacts -> uses zoom info for searching names only 
--> places those 33 names into hunter.io to fetch email and verificaiton 
--> Pandas to format data into the csv 
--> use hubspot MCP to import csv in hubspot leads section 
-
-
-extra nodes: 
-Qualify node which is where crawl4ai comes in to see if they can qualify 
-or subagents
-"""
 
 
 
