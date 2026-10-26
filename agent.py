@@ -32,6 +32,11 @@ from SearchQuery import Query
 import re 
 from urllib.parse import urlparse 
 import random
+from langchain.agents import create_agent
+
+
+
+
 
 load_dotenv()  
 tavilyapikey = os.getenv("TAVILYAPI")   
@@ -66,7 +71,8 @@ def getFullContact(state: StateSchema) -> dict:
         tokenResponse = requests.post(
             url="https://api.zoominfo.com/gtm/oauth/v1/token",
             headers={"Accept": "application/json"},
-            json={"grant_type": "client_credentials", "client_id": zmClientId, "client_secret": zmClientSecret},
+            auth=(zmClientId, zmClientSecret),
+            data={"grant_type": "client_credentials"},
             timeout=30
         )
         tokenResponse.raise_for_status()
@@ -239,6 +245,24 @@ def findemailWithHunter(state: StateSchema) -> dict:
     return {"leads": contacts, "hunter_io_calls": state.get("hunter_io_calls", 0)+1}  
 
 
+def getApolloContacts():  
+    url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=owner&person_seniorities[]=vp&organization_locations[]=new%20jersey&organization_locations[]=new%20york&organization_locations[]=maryland&organization_locations[]=pennsylvania&organization_industries[]=manufacturing&organization_industries[]=pharmaceutical&organization_industries[]=health%20care&organization_num_employees_ranges[]=10%2C800&page=1&per_page=3"
+    headers = {
+        "Cache-Control": "no-cache",
+        "Content-Type": "application/json",
+        "accept": "application/json",
+        "x-api-key": os.getenv("APOLLOAPIKEY")
+    } 
+    response = requests.post(
+        url, 
+        headers=headers
+    ) 
+    dataDict = response.json() 
+     
+   
+    ...
+
+
 
 def leadsToCSV(state: StateSchema): 
     
@@ -258,15 +282,46 @@ def leadsToCSV(state: StateSchema):
 
 
 
-async def composioOutlook():   
-    transport = StreamableHttpTransport(url="https://connect.composio.dev/mcp", headers={"x-consumer-api-key": "ck_IPiV5AV1ejKX_m6QJmY-"}) 
-    async with MCPAdapter(transport) as c: 
-        tools = await c.list_tools() 
-    print([tool.name for tool in tools])  
+async def composioOutlook(state: StateSchema) -> dict:
+    composioKey = os.getenv("COMPOSIO_KEY")
+    if not composioKey:
+        raise ValueError("COMPOSIO_KEY missing from .env")
 
-asyncio.run(composioOutlook())
-    
+    # alias or ID of Tommy's Outlook connection in Composio; leave unset to use the default account
+    senderAccount = os.getenv("COMPOSIO_OUTLOOK_ACCOUNT")
+    accountArg = f", account={senderAccount!r}" if senderAccount else ""
 
+    transport = StreamableHttpTransport(
+        url="https://connect.composio.dev/mcp",
+        headers={"x-consumer-api-key": composioKey}
+    )
+    with open("newleads.csv") as f:
+        csvText = f.read()
+    leadCount = len(state.get("leads", []))
+
+    code = f"""
+path = "/home/user/newleads.csv"
+with open(path, "w") as f:
+    f.write({csvText!r})
+
+up, err = upload_local_file(path)
+if err:
+    print("upload error:", err)
+else:
+    data = up.get("data", up)
+    res, err = run_composio_tool("OUTLOOK_SEND_EMAIL", {{
+        "to": "kevin.kairouz@sunlightenergygroup.com",
+        "subject": "New leads",
+        "body": "{leadCount} new leads attached.",
+        "attachment": {{"name": "newleads.csv", "mimetype": "text/csv", "s3key": data["s3key"]}}
+    }}{accountArg})
+    print(err or res)
+"""
+
+    async with Client(transport) as c:
+        result = await c.call_tool("COMPOSIO_REMOTE_WORKBENCH", {"code_to_execute": code})
+    print(result)
+    return {}
 
 def hubspotSearch(objectType: str, propertyName: str, value: str) -> list: 
     HUBSPOT_URL = "https://api.hubapi.com/crm/objects/2026-09" 
@@ -310,8 +365,8 @@ async def searchWeb(state: StateSchema):
     searchEngine = DDGS()
     queryMakerLLM = init_chat_model(model_provider="ollama", model="nemotron-3-nano:30b-cloud")
 
-    sq = queryMakerLLM.invoke([icp_prompt]).content.strip().strip('"')
-    sq2 = queryMakerLLM.invoke([icp_prompt2]).content.strip().strip('"')
+    sq = queryMakerLLM.invoke([icp_prompt]).content
+    sq2 = queryMakerLLM.invoke([icp_prompt2]).content
     print("BING QUERY:", sq)
     print("YANDEX QUERY:", sq2)
     urls = []
@@ -446,13 +501,15 @@ graph.add_edge("findemailWithHunter", "leadsToCSV")
 graph.add_edge("leadsToCSV", "composioOutlook")
 graph.add_edge("composioOutlook", END) 
 
+app = graph.compile(checkpointer=checkpointer) 
 
+getApolloContacts()
 
-
-
-
-
-
+# result = asyncio.run(app.ainvoke(
+# {"leads": [], "leads_to_get_email": [], "zoom_info_calls": 0, "hunter_io_calls": 0, "names_page": 0},
+# config
+# ))
+# print(len(result["leads"]), "leads")
 
 
 
