@@ -108,18 +108,23 @@ def getFullContact(state: StateSchema) -> dict:
         print(response2) 
         jsonResponse = response2.json() 
         for record in jsonResponse["data"]:  
-            #fix look at dictionary and fix 
-            comapny_name = record["attributes"]["company"]["name"] 
-            first_name = record["firstName"] 
-            last_name = record["lastName"] 
-            role = record["jobTitle"] 
+            outer_dictionary = record["attributes"] 
+            zm_id = outer_dictionary["id"] 
+            company_dict = outer_dictionary["company"] 
+            company_name = company_dict["name"] 
+            firstName = outer_dictionary["firstName"] 
+            lastName = outer_dictionary["lastName"] 
 
-            currentLead = Contact(comapny_name, first_name, last_name, role, "Zoom Info")  
+            currentLead = Contact(comapny_name, firstName, lastName, role, "Zoom Info", id=zm_id)  
             if isInHubspot(currentLead): 
                 continue 
-            else: 
-                uniqueContacts.append(currentLead)
-                insertLead(currentLead)
+            else:
+                data = enrichContactZoomInfo(currentLead) 
+                #make the data into a new instance of contact type/object and then append to the uniqueContacts list 
+                # at end of func update the state of the agent/workflow and move to should continue  
+
+                uniqueContacts.append(currentLead) 
+                enrichContactZoomInfo(currentLead)
         return {"leads": uniqueContacts, "zm_access_token": token}  
     else: 
         url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]=1&page[size]=1"
@@ -157,7 +162,6 @@ def getFullContact(state: StateSchema) -> dict:
                 continue 
             else: 
                 uniqueContacts.append(currentLead)
-                insertLead(currentLead)
         return {"leads": uniqueContacts} 
 
 
@@ -169,7 +173,14 @@ def getFullContact(state: StateSchema) -> dict:
 
 def enrichContactZoomInfo(contact_information: Contact): 
     fn = contact_information.lead_first_name 
-    ln = contact_information.lead_last_name
+    ln = contact_information.lead_last_name 
+    id = contact_information.id  
+    companyName = contact_information.company 
+
+    url = "https://api.zoominfo.com/gtm/data/v1/contacts/enrich" 
+    outputFields = {"outputFields": ["email","phone"]} 
+    
+    
 
     ... 
     #enriches the info 
@@ -222,6 +233,8 @@ def isDuplicateLead(contact: Contact) -> bool:
     return False   
 
 def isInHubspot(contact: Contact) -> bool: 
+    token = os.getenv("HUBSPOT_TOKEN") 
+    url = ""
 
     ...
 
@@ -243,86 +256,12 @@ def findemailWithHunter(state: StateSchema):
     return lead_email  
 
 
+def makeCSV(state: StateSchema):  
+    #get all first names, last names, company, role, etc and make into dataframe and then make it into a csv that always gets overwritten each time 
+    #and then make that sent via outlook mcp using composio
+    df = pd.DataFrame()
 
-graph.add_node(getFullContact) 
-graph.add_node(initalize_agent) 
-graph.add_node(getNamesFromZoomInfo)  
-graph.add_node(getContactsApollo) 
-graph.add_node(composioOutlook) 
-graph.add_node(findemailWithHunter) 
-
-graph.add_edge(START, END)
-
-app = graph.compile(checkpointer)  
-app.get_graph().draw_png("workflow.png")
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-   
-
-    
-
-    # tools = await MCPAdapter(client(mcplink, "ck_IPiV5AV1ejKX_m6QJmY-")).list_tools() 
-    # return [tool.name for tool in tools] 
-
-
-icp_prompt = """
-Write one web search query that finds the websites of individual businesses.
-
-Target: a small manufacturer in Maryland.
-
-Pick ONE specific trade (for example machine shop, sheet metal fabrication, plastics molding,
-food production, printing, woodworking) and ONE Maryland city or town.
-
-Rules:
-- Plain keywords only
-- No quotes, no parentheses, no OR or AND, no site: filters
-- Do not use the words best, top, list, companies, small, or directory
-- Under 10 words
-- Do not mention job titles, emails, or LinkedIn
-- Return only the query, with no explanation
-
-Example of the style: sheet metal fabrication Pittsburgh Pennsylvania
-"""
-
-icp_prompt2 = """
-Write one web search query that finds the websites of individual businesses.
-
-Target: an independent hotel, inn or motel in New Jersey.
-
-Pick ONE type (for example boutique hotel, family owned inn, bed and breakfast, motel,
-resort) and ONE New Jersey city or town.
-
-Rules:
-- Plain keywords only
-- No quotes, no parentheses, no OR or AND, no site: filters
-- Do not use the words best, top, list, hotels, small, or directory
-- Under 10 words
-- Do not mention job titles, emails, or LinkedIn
-- Return only the query, with no explanation
-
-Example of the style: family owned inn Austin Texas
-"""
-
-BLOCKED = ("yelp.", "linkedin.", "facebook.", "indeed.", "glassdoor.", "yellowpages.",
-           "tripadvisor.", "zoominfo.", "mapquest.", "bbb.org", "wikipedia.", "reddit.",
-           "instagram.", "youtube.", "manta.", "dnb.com", "expedia.", "booking.com")
-CONTACT_WORDS = ("contact", "about", "team", "leadership", "staff", "people", "management")
-
-
-async def getInfoTest():
+async def searchWeb(state: StateSchema):
     """
     Step 1: search Bing, Yandex and Tavily and keep the first 10 company websites.
     Step 2: crawl each company's site (homepage plus contact/about/team pages)
@@ -409,6 +348,92 @@ async def getInfoTest():
             print(f"{domain} | emails: {len(emails)} | phones: {len(phones)} | title lines: {len(title_lines)}")
 
     return results
+
+
+icp_prompt = """
+Write one web search query that finds the websites of individual businesses.
+
+Target: a small manufacturer in Maryland.
+
+Pick ONE specific trade (for example machine shop, sheet metal fabrication, plastics molding,
+food production, printing, woodworking) and ONE Maryland city or town.
+
+Rules:
+- Plain keywords only
+- No quotes, no parentheses, no OR or AND, no site: filters
+- Do not use the words best, top, list, companies, small, or directory
+- Under 10 words
+- Do not mention job titles, emails, or LinkedIn
+- Return only the query, with no explanation
+
+Example of the style: sheet metal fabrication Pittsburgh Pennsylvania
+"""
+
+icp_prompt2 = """
+Write one web search query that finds the websites of individual businesses.
+
+Target: an independent hotel, inn or motel in New Jersey.
+
+Pick ONE type (for example boutique hotel, family owned inn, bed and breakfast, motel,
+resort) and ONE New Jersey city or town.
+
+Rules:
+- Plain keywords only
+- No quotes, no parentheses, no OR or AND, no site: filters
+- Do not use the words best, top, list, hotels, small, or directory
+- Under 10 words
+- Do not mention job titles, emails, or LinkedIn
+- Return only the query, with no explanation
+
+Example of the style: family owned inn Austin Texas
+"""
+
+BLOCKED = ("yelp.", "linkedin.", "facebook.", "indeed.", "glassdoor.", "yellowpages.",
+           "tripadvisor.", "zoominfo.", "mapquest.", "bbb.org", "wikipedia.", "reddit.",
+           "instagram.", "youtube.", "manta.", "dnb.com", "expedia.", "booking.com")
+CONTACT_WORDS = ("contact", "about", "team", "leadership", "staff", "people", "management")
+
+
+
+graph.add_node(initalize_agent) 
+graph.add_node(getNamesFromZoomInfo)  
+graph.add_node(getContactsApollo)  
+graph.add_node(getFullContact)
+graph.add_node(composioOutlook) 
+graph.add_node(findemailWithHunter)  
+graph.add_node(searchWeb)
+
+
+graph.add_edge(START, "initalize_agent") 
+graph.add_edge("initalize_agent", "getFullContact") 
+graph.add_edge("getFullContact", "getNamesFromZoomInfo") 
+graph.add_edge("getNamesFromZoomInfo", "findemailWithHunter") 
+graph.add_edge("findemailWithHunter", "getContactsApollo") 
+graph.add_edge("getContactsApollo", "searchWeb") 
+graph.add_edge("searchWeb", "composioOutlook") 
+app = graph.compile(checkpointer)  
+app.get_graph().draw_png("workflow.png")
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+   
+
+    
+
+    # tools = await MCPAdapter(client(mcplink, "ck_IPiV5AV1ejKX_m6QJmY-")).list_tools() 
+    # return [tool.name for tool in tools] 
 
 
 # results = asyncio.run(getInfoTest())
