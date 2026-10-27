@@ -29,7 +29,7 @@ from langchain_core.tools import Tool
 from langchain_core.utils.function_calling import convert_to_openai_tool 
 from langchain_core.tools import BaseTool 
 from SearchQuery import Query
-import re 
+import re as regex
 from urllib.parse import urlparse 
 import random
 from langchain.agents import create_agent
@@ -241,12 +241,22 @@ def findemailWithHunter(state: StateSchema) -> dict:
         response = requests.get(url, params={"first_name": first_name, "last_name": last_name, "company": company_name, "api_key": hunterapikey}, timeout=30) 
         data = response.json() 
         lead_email = data["data"]["email"] 
-        contacts.append(Contact(company_name, first_name, last_name, role, email=lead_email, state=person_state)) 
+        contacts.append(Contact(company_name, first_name, last_name, role, email=lead_email, state=person_state, data_source="Zoom info & Hunter.io")) 
     return {"leads": contacts, "hunter_io_calls": state.get("hunter_io_calls", 0)+1}  
 
 
+def fetchNewApolloPageNumber() -> int:  
+    supabase = create_client(os.getenv("SUPABASE_URL"),os.getenv("SUPABASEAPIKEY") )
+    response = supabase.table("apollopages").select("*", count="exact").execute() 
+    return response.count + 1
+
 def getApolloContacts():  
-    url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=owner&person_seniorities[]=vp&organization_locations[]=new%20jersey&organization_locations[]=new%20york&organization_locations[]=maryland&organization_locations[]=pennsylvania&organization_industries[]=manufacturing&organization_industries[]=pharmaceutical&organization_industries[]=health%20care&organization_num_employees_ranges[]=10%2C800&page=1&per_page=3"
+    url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=director&person_seniorities[]=vp&person_seniorities[]=founder&organization_locations[]=New%20Jersey&organization_locations[]=New%20York&organization_locations[]=Maryland&organization_locations[]=Pennsylvania&organization_industries[]=machinery&organization_industries[]=electrical%2Felectronic%20manufacturing&organization_industries[]=plastics&organization_industries[]=pharmaceuticals&organization_industries[]=building%20materials&organization_industries[]=hotel&organization_industries[]=hospitality&organization_industries[]=Food%20Production&organization_industries[]=supermarkets&organization_industries[]=hotel%20management&organization_industries[]=resort&contact_email_status[]=verified&contact_email_status[]=likely%20to%20engage&contact_email_status[]=unverified&organization_num_employees_ranges[]=10%2C1000&page=1&per_page=1" 
+    pageNumber = str(fetchNewApolloPageNumber()) 
+    print(pageNumber)
+    url = url.replace("&page=1&", f"&page={pageNumber}&") 
+    print(url)
+    
     headers = {
         "Cache-Control": "no-cache",
         "Content-Type": "application/json",
@@ -257,12 +267,15 @@ def getApolloContacts():
         url, 
         headers=headers
     ) 
-    dataDict = response.json() 
-     
-   
-    ...
+    dataDict = response.json()  
+    print(dataDict) 
 
 
+getApolloContacts() 
+
+
+def LLM_Filter(): 
+    init_chat_model
 
 def leadsToCSV(state: StateSchema): 
     
@@ -278,7 +291,10 @@ def leadsToCSV(state: StateSchema):
 
     })  
     dataframe.to_csv("newleads.csv", index=False)  
-    return {}
+    return {} 
+
+
+
 
 
 
@@ -287,7 +303,6 @@ async def composioOutlook(state: StateSchema) -> dict:
     if not composioKey:
         raise ValueError("COMPOSIO_KEY missing from .env")
 
-    # alias or ID of Tommy's Outlook connection in Composio; leave unset to use the default account
     senderAccount = os.getenv("COMPOSIO_OUTLOOK_ACCOUNT")
     accountArg = f", account={senderAccount!r}" if senderAccount else ""
 
@@ -503,7 +518,7 @@ graph.add_edge("composioOutlook", END)
 
 app = graph.compile(checkpointer=checkpointer) 
 
-getApolloContacts()
+# getApolloContacts()
 
 # result = asyncio.run(app.ainvoke(
 # {"leads": [], "leads_to_get_email": [], "zoom_info_calls": 0, "hunter_io_calls": 0, "names_page": 0},

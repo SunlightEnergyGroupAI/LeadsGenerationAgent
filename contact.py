@@ -14,7 +14,7 @@ class Contact:
     fit_score_reasoning: str | None = None
     state: str | None = None
     industry: str | None = None
-    id: str | None = None
+    id: str | None = None 
 
 
 
