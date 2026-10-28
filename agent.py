@@ -268,7 +268,7 @@ def findemailWithHunter(state: StateSchema) -> dict:
         data = response.json() 
         lead_email = data["data"]["email"] 
         contacts.append(Contact(company_name, first_name, last_name, role, email=lead_email, state=person_state, data_source="Zoom info & Hunter.io")) 
-    return {"leads": contacts, "hunter_io_calls": state.get("hunter_io_calls", 0)+1}  
+    return {"leads": contacts}  
 
 
 def fetchNewApolloPageNumber() -> int:  
@@ -359,7 +359,7 @@ def getApolloContacts(state: StateSchema) -> dict:
         
 def model_classifier():  
     #ignore this is optional and for later in order to improve lead filtering after retreival 
-    
+
     ...
 
 
@@ -636,24 +636,31 @@ def useApolloAgain(state: StateSchema) -> str:
 graph.add_node(initalize_agent) 
 graph.add_node(getFullContact) 
 graph.add_node(getNamesFromZoomInfo) 
-graph.add_node(findemailWithHunter) 
+graph.add_node(findemailWithHunter)  
+graph.add_node(getApolloContacts)
 graph.add_node(leadsToCSV) 
 graph.add_node(LLM_Filter)
 graph.add_node(composioOutlook) 
 
 graph.add_edge(START, "initalize_agent") 
-graph.add_edge("initalize_agent", "getFullContact") 
-
-
-# graph.add_edge(START, "initalize_agent") 
-# graph.add_edge("initalize_agent", "getFullContact") 
-# graph.add_edge("getFullContact", "getNamesFromZoomInfo") 
-# graph.add_edge("getNamesFromZoomInfo", "findemailWithHunter") 
-# graph.add_edge("findemailWithHunter", "leadsToCSV") 
-# graph.add_edge("leadsToCSV", "composioOutlook")
-# graph.add_edge("composioOutlook", END) 
-
+graph.add_edge("initalize_agent", "getFullContact")  
+graph.add_conditional_edges(
+    "getFullContact", 
+    useZoomInfoAgain, 
+    {"use_again": "getFullContact", "next_tool": "getNamesFromZoomInfo"} 
+) 
+graph.add_edge("getNamesFromZoomInfo", "findemailWithHunter") 
+graph.add_conditional_edges(
+    "findemailWithHunter", 
+    useHunterAndZoomAgain, 
+    {"use_again": "findemailWithHunter", "next_tool": "getApolloContacts"}
+) 
+graph.add_conditional_edges("getApolloContacts", useApolloAgain, {"use_again": "getApolloContacts", "filter": "LLM_Filter"}) 
+graph.add_edge("LLM_Filter", "leadsToCSV") 
+graph.add_edge("leadsToCSV", "composioOutlook")
+graph.add_edge("composioOutlook", END)
 app = graph.compile(checkpointer=checkpointer) 
+app.get_graph().draw_png("workflow.png")
 
 # getApolloContacts()
 

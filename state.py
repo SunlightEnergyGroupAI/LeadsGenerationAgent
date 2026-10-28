@@ -18,7 +18,6 @@ hunter_io_calls ie getting emails is at a hard limit of 33
 class StateSchema(TypedDict): 
     leads: Annotated[list[Contact], operator.add] 
     zoom_info_calls: int 
-    hunter_io_calls: int 
     total_tokens_used: int 
     urls: list[str] 
     is_current_lead_duplicate: bool 
