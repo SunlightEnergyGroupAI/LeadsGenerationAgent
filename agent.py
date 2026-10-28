@@ -1,7 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 from langchain.chat_models import init_chat_model
 from tavily import TavilyClient  
-from langchain.tools import tool 
 from ddgs import DDGS  
 from dotenv import load_dotenv 
 import os 
@@ -12,13 +11,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from crawl4ai import AsyncWebCrawler 
 from typing import Literal 
 from langchain.mcp import MCPAdapter 
-from bs4 import BeautifulSoup 
 from langchain_core.documents import Document 
 from source import Source 
 import asyncio 
 from langchain.messages import SystemMessage  
 from supabase import create_client 
-from supabase import Client as cli
 import time  
 from langchain.agents import create_agent 
 from langchain_ollama import ChatOllama
@@ -26,8 +23,6 @@ from fastmcp.client import Client
 from contact import Contact   
 from fastmcp.client.transports import StreamableHttpTransport  
 from langchain_core.tools import Tool 
-from langchain_core.utils.function_calling import convert_to_openai_tool 
-from langchain_core.tools import BaseTool 
 from SearchQuery import Query
 import re
 from urllib.parse import urlparse 
@@ -49,7 +44,6 @@ config = {"configurable": {"thread_id": "1"}}
 checkpointer = InMemorySaver() 
 agent = init_chat_model(model_provider="ollama", model="qwen3.5:4b")  
 graph = StateGraph(StateSchema) 
-qwenSub = ChatOllama(model="qwen3.5:4b") 
 
 
 
@@ -81,18 +75,18 @@ def isInHubspot(contact: Contact) -> bool:
     leads = hubspotSearch("leads", "associations.company", companies[0]["id"])
     return len(leads) > 0
 
-
-
-
-
-
 def initalize_agent(state: StateSchema) -> dict:
     return {}  
 
 def fetchNewZoomInfoPageNumber() -> int: 
     supabase = create_client(os.getenv("SUPABASE_URL"),os.getenv("SUPABASEAPIKEY") )
     response = supabase.table("zoominfopages").select("*", count="exact").execute() 
-    return response.count + 1  
+    return response.count + 1 
+
+def writeNewZoomInfoPageNumber(pageNumber: int) -> None:
+    supabase = create_client(os.getenv("SUPABASE_URL"),os.getenv("SUPABASEAPIKEY") )
+    response = supabase.table("zoominfopages").insert({"pagenum": pageNumber}).execute()
+    return  
 
 
 def enrichContactZoomInfo(contact: Contact, token: str) -> Contact:
@@ -183,7 +177,7 @@ def getFullContact(state: StateSchema) -> dict:
         addedContact = enrichContactZoomInfo(currLead, token) 
         addedContact.data_source = "Zoom Info"
         uniqueContacts.append(addedContact)
-
+    writeNewZoomInfoPageNumber(page) 
     return {
         "leads": uniqueContacts,
         "zm_access_token": token,
@@ -208,7 +202,7 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
         token = tokenResponse.json()["access_token"]
 
     page = fetchNewZoomInfoPageNumber()
-    url = f"https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]={page}&page[size]=5"
+    url = f"https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]={page}&page[size]=1"
     headers = {
         "accept": "application/vnd.api+json",
         "content-type": "application/vnd.api+json",
@@ -232,7 +226,9 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
     searchResponse = requests.post(url, json=payload, headers=headers, timeout=30)
     searchResponse.raise_for_status()
     seen_companies = {c.company for c in state.get("leads", [])}
-    seen_companies |= {c.company for c in state.get("leads_to_get_email", [])}
+    seen_companies |= {c.company for c in state.get("leads_to_get_email", [])} 
+
+    print(searchResponse.json())
 
     for record in searchResponse.json()["data"]:
         attrs = record["attributes"]
@@ -251,11 +247,10 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
             continue
         seen_companies.add(currLead.company)
         nameOnlyContacts.append(currLead)
-
+    writeNewZoomInfoPageNumber(page) 
     return {
         "leads_to_get_email": nameOnlyContacts,
-        "zm_access_token": token,
-        "names_page": page
+        "zm_access_token": token
     } 
 
 def findemailWithHunter(state: StateSchema) -> dict: 
