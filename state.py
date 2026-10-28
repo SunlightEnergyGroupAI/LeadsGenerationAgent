@@ -26,7 +26,9 @@ class StateSchema(TypedDict):
     zm_access_token: Any 
     names_page: int 
     apollo_calls: int 
-    filtered_leads: list[Contact]
+    filtered_leads: list[Contact] 
+    zoom_info_name_counter: int 
+    apollo_calls: int
     
 
 

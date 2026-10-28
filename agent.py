@@ -251,7 +251,8 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
     writeNewZoomInfoPageNumber(page) 
     return {
         "leads_to_get_email": nameOnlyContacts,
-        "zm_access_token": token
+        "zm_access_token": token, 
+        "zoom_info_name_counter": state["zoom_info_name_counter"] + 1
     } 
 
 def findemailWithHunter(state: StateSchema) -> dict: 
@@ -380,19 +381,22 @@ def LLM_Filter(state: StateSchema):
     if a company fits our icp then icp_verdict is True 
     if a company does not fit our icp then icp_verdict is False
     """ 
-
     sysprompt = SystemMessage(agent_prompt)  
-    judge_agent = init_chat_model(model="tev1:0.8b", model_provider="ollama").with_structured_output(FilterResponse) 
-    for contact in state["leads"]: 
+    judge_agent = init_chat_model(model="qwen3:1.7b", model_provider="ollama").with_structured_output(FilterResponse) 
+    for contact in state["leads"]:  
+        lead_name = contact.lead_first_name + " " + contact.lead_last_name
         query = f"""
         Here is a company, does it fit our ICP? (Some fields may have no value): 
         Company Name: {contact.company},  
         Company State: {contact.state}, 
-        Lead's Name: {contact.company_role}, 
+        Lead's Name: {lead_name}, 
+        Lead's Title: {contact.company_role} 
         State: {contact.state}, 
-        Industry: {contact.industry} 
+        Industry: {contact.industry}  
+
+        Show your work step by step, and double check your reasoning
         """ 
-        verdict = judge_agent.invoke([sysprompt.content, query]) 
+        verdict = judge_agent.invoke([sysprompt, query]) 
         if verdict["icp_verdict"] == True: 
             new_leads.append(contact) 
         else: 
@@ -436,7 +440,7 @@ async def composioOutlook(state: StateSchema) -> dict:
     )
     with open("newleads.csv") as f:
         csvText = f.read()
-    leadCount = len(state.get("leads", []))
+    leadCount = len(state.get("filtered_leads", []))
 
     code = f"""
 path = "/home/user/newleads.csv"
@@ -470,7 +474,15 @@ async def searchWeb(state: StateSchema):
 
     Returns:
     - list[dict]: one dict per company with company_domain, website, emails, phones, title_lines
-    """
+    """ 
+    contact: list[Contact] = [] 
+
+    #check if in hubspot, check if its in current list ie state["leads"] 
+    #if its unique lead append to contact list 
+
+
+    # at end of the function return {"leads": contact}
+
     tavilyEngine = TavilyClient(api_key=tavilyapikey)
     searchEngine = DDGS()
     queryMakerLLM = init_chat_model(model_provider="ollama", model="nemotron-3-nano:30b-cloud")
@@ -595,21 +607,48 @@ BLOCKED = ("yelp.", "linkedin.", "facebook.", "indeed.", "glassdoor.", "yellowpa
 CONTACT_WORDS = ("contact", "about", "team", "leadership", "staff", "people", "management")
 
 
+#Routing Nodes (Conditional Logic) 
+
+def useZoomInfoAgain(state: StateSchema) -> str: 
+    if state["zoom_info_calls"] < 2: 
+        return "use_again"
+    else: 
+        return "next_tool"
+
+def useHunterAndZoomAgain(state: StateSchema) -> str: 
+    if state["zoom_info_name_counter"] < 5: 
+        return "use_again" 
+    else: 
+        return "next_tool" 
+
+def useApolloAgain(state: StateSchema) -> str: 
+    if state["apollo_calls"] < 5: 
+        return "use_again" 
+    else: 
+        return "filter" 
+
+
+
+
+
 graph.add_node(initalize_agent) 
 graph.add_node(getFullContact) 
 graph.add_node(getNamesFromZoomInfo) 
 graph.add_node(findemailWithHunter) 
 graph.add_node(leadsToCSV) 
+graph.add_node(LLM_Filter)
 graph.add_node(composioOutlook) 
 
-
 graph.add_edge(START, "initalize_agent") 
-graph.add_edge("initalize_agent", "getFullContact") 
-graph.add_edge("getFullContact", "getNamesFromZoomInfo") 
-graph.add_edge("getNamesFromZoomInfo", "findemailWithHunter") 
-graph.add_edge("findemailWithHunter", "leadsToCSV") 
-graph.add_edge("leadsToCSV", "composioOutlook")
-graph.add_edge("composioOutlook", END) 
+graph.add_edge("initalize_agent", "getFullContact")
+
+# graph.add_edge(START, "initalize_agent") 
+# graph.add_edge("initalize_agent", "getFullContact") 
+# graph.add_edge("getFullContact", "getNamesFromZoomInfo") 
+# graph.add_edge("getNamesFromZoomInfo", "findemailWithHunter") 
+# graph.add_edge("findemailWithHunter", "leadsToCSV") 
+# graph.add_edge("leadsToCSV", "composioOutlook")
+# graph.add_edge("composioOutlook", END) 
 
 app = graph.compile(checkpointer=checkpointer) 
 
