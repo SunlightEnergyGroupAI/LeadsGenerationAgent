@@ -383,7 +383,6 @@ def LLM_Filter(state: StateSchema):
 
     sysprompt = SystemMessage(agent_prompt)  
     judge_agent = init_chat_model(model="tev1:0.8b", model_provider="ollama").with_structured_output(FilterResponse) 
-    response = judge_agent.invoke([sysprompt]) 
     for contact in state["leads"]: 
         query = f"""
         Here is a company, does it fit our ICP? (Some fields may have no value): 
@@ -393,7 +392,7 @@ def LLM_Filter(state: StateSchema):
         State: {contact.state}, 
         Industry: {contact.industry} 
         """ 
-        verdict = judge_agent.invoke([query]) 
+        verdict = judge_agent.invoke([sysprompt.content, query]) 
         if verdict["icp_verdict"] == True: 
             new_leads.append(contact) 
         else: 
@@ -406,15 +405,14 @@ def LLM_Filter(state: StateSchema):
 def leadsToCSV(state: StateSchema): 
     
     dataframe = pd.DataFrame({
-        "company": [contact.company for contact in state["leads"]], 
-        "lead_first_name": [contact.lead_first_name for contact in state["leads"]], 
-        "lead_last_name": [contact.lead_last_name for contact in state["leads"]], 
-        "company_role": [contact.company_role for contact in state["leads"]],
-        "phone": [contact.phone for contact in state["leads"]], 
-        "email": [contact.email for contact in state["leads"]], 
-        "state": [contact.state for contact in state["leads"]], 
-        "data_source": [contact.data_source for contact in state["leads"]]
-
+        "company": [contact.company for contact in state["filtered_leads"]], 
+        "lead_first_name": [contact.lead_first_name for contact in state["filtered_leads"]], 
+        "lead_last_name": [contact.lead_last_name for contact in state["filtered_leads"]], 
+        "company_role": [contact.company_role for contact in state["filtered_leads"]],
+        "phone": [contact.phone for contact in state["filtered_leads"]], 
+        "email": [contact.email for contact in state["filtered_leads"]], 
+        "state": [contact.state for contact in state["filtered_leads"]], 
+        "data_source": [contact.data_source for contact in state["filtered_leads"]]
     })  
     dataframe.to_csv("newleads.csv", index=False)  
     return {} 
