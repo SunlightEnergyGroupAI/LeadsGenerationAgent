@@ -364,10 +364,16 @@ def LLM_Filter(state: StateSchema):
     agent_prompt = """ 
     You are a kind and helpful assistant who will act as a judge, determining whether this company fits our ICP 
 
-    Our ICP are companies who 
+    Our ICP are small to medium size companies
+    - companies who are locted in NJ, NY, MD, PA 
+    - organizations that are related to manufacturing, hospitality, retail, machinery, pharma, religous groups, etc because we help clients manage their energy 
+    
+    These are the most important features because we want to make sure that they are in an industry where it makes sense for us because we help our clients shop for energy in 
+    deregulated states (Electricity & Gas) 
+    """ 
 
-
-    """
+    sysprompt = SystemMessage(agent_prompt) 
+    judge_agent = init_chat_model(model="qwen3:4b", model_provider="ollama").with_structured_output()
     ...
 
 

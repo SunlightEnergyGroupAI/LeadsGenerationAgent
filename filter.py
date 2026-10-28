@@ -1,7 +1,6 @@
-from dataclasses import dataclass  
-from typing import Literal 
+from typing import Literal, TypedDict
 
 
-@dataclass
-class FilterResponse: 
+
+class FilterResponse(TypedDict): 
     verdict: bool
