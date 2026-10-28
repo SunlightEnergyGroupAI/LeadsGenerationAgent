@@ -27,7 +27,8 @@ from SearchQuery import Query
 import re
 from urllib.parse import urlparse 
 import random
-from langchain.agents import create_agent
+from langchain.agents import create_agent 
+from filter import FilterResponse
 
 
 
@@ -372,8 +373,12 @@ def LLM_Filter(state: StateSchema):
     deregulated states (Electricity & Gas) 
     """ 
 
-    sysprompt = SystemMessage(agent_prompt) 
-    judge_agent = init_chat_model(model="qwen3:4b", model_provider="ollama").with_structured_output()
+    sysprompt = SystemMessage(agent_prompt)  
+    judge_agent = init_chat_model(model="qwen3:4b", model_provider="ollama").with_structured_output(FilterResponse) 
+    judge_agent.invoke([sysprompt]) 
+    for contact in state["leads"]: 
+        
+        ...
     ...
 
 
