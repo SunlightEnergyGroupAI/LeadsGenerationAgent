@@ -29,7 +29,7 @@ from langchain_core.tools import Tool
 from langchain_core.utils.function_calling import convert_to_openai_tool 
 from langchain_core.tools import BaseTool 
 from SearchQuery import Query
-import re as regex
+import re
 from urllib.parse import urlparse 
 import random
 from langchain.agents import create_agent
@@ -54,11 +54,72 @@ qwenSub = ChatOllama(model="qwen3.5:4b")
 
 
 
+def hubspotSearch(objectType: str, propertyName: str, value: str) -> list: 
+    HUBSPOT_URL = "https://api.hubapi.com/crm/objects/2026-09" 
+    headers = {
+        "Authorization": f"Bearer {hubspotKey}",
+        "Content-Type": "application/json"
+    }
+    body = {
+        "filterGroups": [
+            {"filters": [{"propertyName": propertyName, "operator": "EQ", "value": value}]}
+        ],
+        "properties": [],
+        "sorts": [],
+        "limit": 1,
+        "after": "0"
+    }
+    response = requests.post(f"{HUBSPOT_URL}/{objectType}/search", headers=headers, json=body, timeout=30)
+    response.raise_for_status()
+    return response.json().get("results", [])
+
+
+def isInHubspot(contact: Contact) -> bool:
+    companies = hubspotSearch("companies", "name", contact.company.strip())
+    if not companies:
+        return False
+    leads = hubspotSearch("leads", "associations.company", companies[0]["id"])
+    return len(leads) > 0
+
+
+
 
 
 
 def initalize_agent(state: StateSchema) -> dict:
-    return {} 
+    return {}  
+
+def fetchNewZoomInfoPageNumber() -> int: 
+    supabase = create_client(os.getenv("SUPABASE_URL"),os.getenv("SUPABASEAPIKEY") )
+    response = supabase.table("zoominfopages").select("*", count="exact").execute() 
+    return response.count + 1  
+
+
+def enrichContactZoomInfo(contact: Contact, token: str) -> Contact:
+    url = "https://api.zoominfo.com/gtm/data/v1/contacts/enrich"
+    headers = {
+        "accept": "application/vnd.api+json",
+        "content-type": "application/vnd.api+json",
+        "Authorization": f"Bearer {token}"
+    }
+    payload = {
+        "data": {
+            "type": "ContactEnrich",
+            "attributes": {
+                "outputFields": ["email", "phone", "mobilePhone"],
+                "matchPersonInput": [{"personId": int(contact.id)}]
+            }
+        }
+    }
+    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    response.raise_for_status()
+    results = response.json().get("data", [])
+    if results:
+        attrs = results[0].get("attributes", {})
+        contact.email = attrs.get("email")
+        contact.phone = attrs.get("phone") or attrs.get("mobilePhone")
+    contact.data_source = "Zoom Info"
+    return contact
 
 
 def getFullContact(state: StateSchema) -> dict:
@@ -78,7 +139,7 @@ def getFullContact(state: StateSchema) -> dict:
         tokenResponse.raise_for_status()
         token = tokenResponse.json()["access_token"]
 
-    page = state.get("zoom_info_calls", 0) + 1
+    page = fetchNewZoomInfoPageNumber()
     url = f"https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]={page}&page[size]=1"
     headers = {
         "accept": "application/vnd.api+json",
@@ -111,55 +172,23 @@ def getFullContact(state: StateSchema) -> dict:
             lead_first_name=attrs["firstName"],
             lead_last_name=attrs["lastName"],
             company_role=attrs.get("jobTitle"),
-            state=chosenState,
+            state=chosenState, 
             id=record["id"]
         )
         if currLead.company in seen_companies:
             continue
         elif isInHubspot(currLead):
             continue
-        seen_companies.add(currLead.company)
-        uniqueContacts.append(enrichContactZoomInfo(currLead, token))
+        seen_companies.add(currLead.company) 
+        addedContact = enrichContactZoomInfo(currLead, token) 
+        addedContact.data_source = "Zoom Info"
+        uniqueContacts.append(addedContact)
 
     return {
         "leads": uniqueContacts,
         "zm_access_token": token,
-        "zoom_info_calls": page
+        "zoom_info_calls": state["zoom_info_calls"]+1
     }
-
-def enrichContactZoomInfo(contact: Contact, token: str) -> Contact:
-    url = "https://api.zoominfo.com/gtm/data/v1/contacts/enrich"
-    headers = {
-        "accept": "application/vnd.api+json",
-        "content-type": "application/vnd.api+json",
-        "Authorization": f"Bearer {token}"
-    }
-    payload = {
-        "data": {
-            "type": "ContactEnrich",
-            "attributes": {
-                "outputFields": ["email", "phone", "mobilePhone"],
-                "matchPersonInput": [{"personId": int(contact.id)}]
-            }
-        }
-    }
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
-    response.raise_for_status()
-    results = response.json().get("data", [])
-    if results:
-        attrs = results[0].get("attributes", {})
-        contact.email = attrs.get("email")
-        contact.phone = attrs.get("phone") or attrs.get("mobilePhone")
-    contact.data_source = "Zoom Info"
-    return contact
-
-
-
-def useZoomInfoAgain(state: StateSchema) -> dict: 
-    if state["zoom_info_calls"] < 3: 
-        return "use_again" 
-    else: 
-        return "next_tool"  
 
 
 def getNamesFromZoomInfo(state: StateSchema) -> dict:
@@ -178,7 +207,7 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
         tokenResponse.raise_for_status()
         token = tokenResponse.json()["access_token"]
 
-    page = state.get("names_page", 0) + 1
+    page = fetchNewZoomInfoPageNumber()
     url = f"https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]={page}&page[size]=5"
     headers = {
         "accept": "application/vnd.api+json",
@@ -248,34 +277,97 @@ def findemailWithHunter(state: StateSchema) -> dict:
 def fetchNewApolloPageNumber() -> int:  
     supabase = create_client(os.getenv("SUPABASE_URL"),os.getenv("SUPABASEAPIKEY") )
     response = supabase.table("apollopages").select("*", count="exact").execute() 
-    return response.count + 1
+    return response.count + 1  
 
-def getApolloContacts():  
+
+def writeNewApolloPageNumber(pageNumber: int) -> None:
+    supabase = create_client(os.getenv("SUPABASE_URL"),os.getenv("SUPABASEAPIKEY") )
+    response = supabase.table("apollopages").insert({"page": pageNumber}).execute()
+    return 
+
+
+
+def enrichApolloContact(apollo_id: str) -> Contact | None:
+    response = requests.post(
+        "https://api.apollo.io/api/v1/people/match",
+        headers={
+            "Cache-Control": "no-cache",
+            "Content-Type": "application/json",
+            "accept": "application/json",
+            "x-api-key": os.getenv("APOLLOAPIKEY"),
+        },
+        json={"id": apollo_id},
+    )
+    response.raise_for_status()
+
+    person = response.json().get("person")
+    if not person:
+        return None 
+
+    organization = person.get("organization") or {}
+    phone_numbers = person.get("phone_numbers") or []
+
+    return Contact(
+        company=organization.get("name"),
+        lead_first_name=person.get("first_name"),
+        lead_last_name=person.get("last_name"),
+        company_role=person.get("title"),
+        data_source="Apollo",
+        email=person.get("email"),
+        phone=phone_numbers[0].get("sanitized_number") if phone_numbers else None,
+        state=person.get("state"),
+        industry=organization.get("industry"),
+        id=apollo_id,
+    )
+
+def getApolloContacts(state: StateSchema) -> dict: 
+    contacts: list[Contact] = [] 
     url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=director&person_seniorities[]=vp&person_seniorities[]=founder&organization_locations[]=New%20Jersey&organization_locations[]=New%20York&organization_locations[]=Maryland&organization_locations[]=Pennsylvania&organization_industries[]=machinery&organization_industries[]=electrical%2Felectronic%20manufacturing&organization_industries[]=plastics&organization_industries[]=pharmaceuticals&organization_industries[]=building%20materials&organization_industries[]=hotel&organization_industries[]=hospitality&organization_industries[]=Food%20Production&organization_industries[]=supermarkets&organization_industries[]=hotel%20management&organization_industries[]=resort&contact_email_status[]=verified&contact_email_status[]=likely%20to%20engage&contact_email_status[]=unverified&organization_num_employees_ranges[]=10%2C1000&page=1&per_page=1" 
-    pageNumber = str(fetchNewApolloPageNumber()) 
-    print(pageNumber)
-    url = url.replace("&page=1&", f"&page={pageNumber}&") 
-    print(url)
-    
+    pageNumber = fetchNewApolloPageNumber()  
+    url = url.replace("&page=1&", f"&page={pageNumber}&")
+
     headers = {
         "Cache-Control": "no-cache",
         "Content-Type": "application/json",
         "accept": "application/json",
-        "x-api-key": os.getenv("APOLLOAPIKEY")
-    } 
-    response = requests.post(
-        url, 
-        headers=headers
-    ) 
-    dataDict = response.json()  
-    print(dataDict) 
+        "x-api-key": os.getenv("APOLLOAPIKEY"),
+    }
+    response = requests.post(url, headers=headers)
+    response.raise_for_status()  
+    dataDict = response.json()
+
+    people = dataDict.get("people", [])
+    if not people:
+        print(f"No people on page {pageNumber}. Reached the end of the results.")
+        return {"leads": []}
+
+    for person in people:
+        organization = person.get("organization") or {}
+        curr_lead = Contact(
+            organization.get("name"),
+            person.get("first_name"),
+            company_role=person.get("title"),
+            data_source="Apollo",
+            id=person["id"],
+        )
+        if not isInHubspot(curr_lead):
+            enriched = enrichApolloContact(curr_lead.id)
+            if enriched is None:
+                continue
+            contacts.append(enriched)
+    writeNewApolloPageNumber(pageNumber) 
+    return {"leads": contacts} 
 
 
-getApolloContacts() 
+        
+
+
+
 
 
 def LLM_Filter(): 
-    init_chat_model
+    ...
+
 
 def leadsToCSV(state: StateSchema): 
     
@@ -337,35 +429,6 @@ else:
         result = await c.call_tool("COMPOSIO_REMOTE_WORKBENCH", {"code_to_execute": code})
     print(result)
     return {}
-
-def hubspotSearch(objectType: str, propertyName: str, value: str) -> list: 
-    HUBSPOT_URL = "https://api.hubapi.com/crm/objects/2026-09" 
-    headers = {
-        "Authorization": f"Bearer {hubspotKey}",
-        "Content-Type": "application/json"
-    }
-    body = {
-        "filterGroups": [
-            {"filters": [{"propertyName": propertyName, "operator": "EQ", "value": value}]}
-        ],
-        "properties": [],
-        "sorts": [],
-        "limit": 1,
-        "after": "0"
-    }
-    response = requests.post(f"{HUBSPOT_URL}/{objectType}/search", headers=headers, json=body, timeout=30)
-    response.raise_for_status()
-    return response.json().get("results", [])
-
-
-def isInHubspot(contact: Contact) -> bool:
-    companies = hubspotSearch("companies", "name", contact.company.strip())
-    if not companies:
-        return False
-    leads = hubspotSearch("leads", "associations.company", companies[0]["id"])
-    return len(leads) > 0
-
-
 
 async def searchWeb(state: StateSchema):
     """

@@ -27,7 +27,8 @@ class StateSchema(TypedDict):
     is_current_lead_duplicate: bool 
     leads_to_get_email: list[Contact] 
     zm_access_token: Any 
-    names_page: int
+    names_page: int 
+    apollo_calls: int
     
 
 
