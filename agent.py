@@ -360,7 +360,14 @@ def getApolloContacts(state: StateSchema) -> dict:
 
 
 
-def LLM_Filter(): 
+def LLM_Filter(state: StateSchema):  
+    agent_prompt = """ 
+    You are a kind and helpful assistant who will act as a judge, determining whether this company fits our ICP 
+
+    Our ICP are companies who 
+
+
+    """
     ...
 
 
