@@ -336,7 +336,7 @@ def getApolloContacts(state: StateSchema) -> dict:
     people = dataDict.get("people", [])
     if not people:
         print(f"No people on page {pageNumber}. Reached the end of the results.")
-        return {"leads": []}
+        return {"leads": [], "apollo_calls": state["apollo_calls"] + 1}
 
     for person in people:
         organization = person.get("organization") or {}
@@ -353,11 +353,13 @@ def getApolloContacts(state: StateSchema) -> dict:
                 continue
             contacts.append(enriched)
     writeNewApolloPageNumber(pageNumber) 
-    return {"leads": contacts} 
+    return {"leads": contacts, "apollo_calls": state["apollo_calls"]+1} 
 
 
         
-def model_classifier(): 
+def model_classifier():  
+    #ignore this is optional and for later in order to improve lead filtering after retreival 
+    
     ...
 
 
@@ -640,7 +642,8 @@ graph.add_node(LLM_Filter)
 graph.add_node(composioOutlook) 
 
 graph.add_edge(START, "initalize_agent") 
-graph.add_edge("initalize_agent", "getFullContact")
+graph.add_edge("initalize_agent", "getFullContact") 
+
 
 # graph.add_edge(START, "initalize_agent") 
 # graph.add_edge("initalize_agent", "getFullContact") 
