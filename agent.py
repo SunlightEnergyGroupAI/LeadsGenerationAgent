@@ -653,7 +653,7 @@ graph.add_edge("getNamesFromZoomInfo", "findemailWithHunter")
 graph.add_conditional_edges(
     "findemailWithHunter", 
     useHunterAndZoomAgain, 
-    {"use_again": "findemailWithHunter", "next_tool": "getApolloContacts"}
+    {"use_again": "getNamesFromZoomInfo", "next_tool": "getApolloContacts"}
 ) 
 graph.add_conditional_edges("getApolloContacts", useApolloAgain, {"use_again": "getApolloContacts", "filter": "LLM_Filter"}) 
 graph.add_edge("LLM_Filter", "leadsToCSV") 
