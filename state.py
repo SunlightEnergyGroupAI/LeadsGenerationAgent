@@ -21,15 +21,12 @@ class StateSchema(TypedDict):
     hunter_io_calls: int 
     total_tokens_used: int 
     urls: list[str] 
-    lead_to_check: Contact 
-    add_current_lead: Contact 
-    added_lead: bool 
     is_current_lead_duplicate: bool 
     leads_to_get_email: list[Contact] 
     zm_access_token: Any 
     names_page: int 
     apollo_calls: int 
-    filtered_leads = list[Contact]
+    filtered_leads: list[Contact]
     
 
 

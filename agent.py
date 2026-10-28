@@ -356,30 +356,51 @@ def getApolloContacts(state: StateSchema) -> dict:
 
 
         
-
+def model_classifier(): 
+    ...
 
 
 
 
 def LLM_Filter(state: StateSchema):  
+    new_leads: list[Contact] = [] 
+
     agent_prompt = """ 
     You are a kind and helpful assistant who will act as a judge, determining whether this company fits our ICP 
 
-    Our ICP are small to medium size companies
+    Our ICP are small to medium size companies (NO LARGE CORPORATIONS)
     - companies who are locted in NJ, NY, MD, PA 
     - organizations that are related to manufacturing, hospitality, retail, machinery, pharma, religous groups, etc because we help clients manage their energy 
     
     These are the most important features because we want to make sure that they are in an industry where it makes sense for us because we help our clients shop for energy in 
-    deregulated states (Electricity & Gas) 
+    deregulated states (Electricity & Gas)   
+
+    For the lead we want it to be someone high up that our BDR can call and we have a realistic chance of getting a meeting 
+
+    if a company fits our icp then icp_verdict is True 
+    if a company does not fit our icp then icp_verdict is False
     """ 
 
     sysprompt = SystemMessage(agent_prompt)  
-    judge_agent = init_chat_model(model="qwen3:4b", model_provider="ollama").with_structured_output(FilterResponse) 
-    judge_agent.invoke([sysprompt]) 
+    judge_agent = init_chat_model(model="tev1:0.8b", model_provider="ollama").with_structured_output(FilterResponse) 
+    response = judge_agent.invoke([sysprompt]) 
     for contact in state["leads"]: 
+        query = f"""
+        Here is a company, does it fit our ICP? (Some fields may have no value): 
+        Company Name: {contact.company},  
+        Company State: {contact.state}, 
+        Lead's Name: {contact.company_role}, 
+        State: {contact.state}, 
+        Industry: {contact.industry} 
+        """ 
+        verdict = judge_agent.invoke([query]) 
+        if verdict["icp_verdict"] == True: 
+            new_leads.append(contact) 
+        else: 
+            continue 
+    return {"filtered_leads": new_leads}
         
-        ...
-    ...
+
 
 
 def leadsToCSV(state: StateSchema): 
