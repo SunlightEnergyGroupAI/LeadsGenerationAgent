@@ -217,7 +217,8 @@ def getFullContact(state: StateSchema) -> dict:
             lead_first_name=attrs["firstName"],
             lead_last_name=attrs["lastName"],
             company_role=attrs.get("jobTitle"),
-            state=attrs.get("state"), 
+            state=attrs.get("state"),  
+            company_address=attrs.get("street"),
             id=record["id"]
         )
         if currLead.company in seen_companies:
@@ -289,13 +290,15 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
             lead_last_name=attrs["lastName"],
             company_role=attrs.get("jobTitle"),
             data_source="Zoom Info",
-            state=chosenState,
             id=record["id"]
         )
         if currLead.company in seen_companies:
             continue
         elif isInHubspot(currLead):
-            continue
+            continue 
+        #where we modify the currLead variable by calling our func that gets the 
+        # location and state 
+
         seen_companies.add(currLead.company)
         nameOnlyContacts.append(currLead)
     writeNewZoomInfoPageNumber(page) 
@@ -362,7 +365,7 @@ def enrichApolloContact(apollo_id: str) -> Contact | None:
         data_source="Apollo",
         email=person.get("email"),
         phone=phone_numbers[0].get("sanitized_number") if phone_numbers else None,
-        state=person.get("state"),
+        state=person.get("state"), 
         industry=organization.get("industry"),
         id=apollo_id,
     )
@@ -416,22 +419,24 @@ def model_classifier():
 
 
 def leadsFilter(state: StateSchema) -> dict: 
+    #TODO: build the ML model to filter the leads 
     return {}
         
 
 
 
 def leadsToCSV(state: StateSchema): 
+    #change to filtered_leads later
     
     dataframe = pd.DataFrame({
-        "company": [contact.company for contact in state["filtered_leads"]], 
-        "lead_first_name": [contact.lead_first_name for contact in state["filtered_leads"]], 
-        "lead_last_name": [contact.lead_last_name for contact in state["filtered_leads"]], 
-        "company_role": [contact.company_role for contact in state["filtered_leads"]],
-        "phone": [contact.phone for contact in state["filtered_leads"]], 
-        "email": [contact.email for contact in state["filtered_leads"]], 
-        "state": [contact.state for contact in state["filtered_leads"]], 
-        "data_source": [contact.data_source for contact in state["filtered_leads"]]
+        "company": [contact.company for contact in state["leads"]], 
+        "lead_first_name": [contact.lead_first_name for contact in state["leads"]], 
+        "lead_last_name": [contact.lead_last_name for contact in state["leads"]], 
+        "company_role": [contact.company_role for contact in state["leads"]],
+        "phone": [contact.phone for contact in state["leads"]], 
+        "email": [contact.email for contact in state["leads"]], 
+        "state": [contact.state for contact in state["leads"]], 
+        "data_source": [contact.data_source for contact in state["leads"]]
     })  
     dataframe.to_csv("newleads.csv", index=False)  
     return {} 
@@ -652,7 +657,7 @@ graph.add_node(getNamesFromZoomInfo)
 graph.add_node(findemailWithHunter)  
 graph.add_node(getApolloContacts)
 graph.add_node(leadsToCSV) 
-graph.add_node(leadsFilter) 
+graph.add_node(leadsFilter)
 graph.add_node(composioOutlook) 
 
 graph.add_edge(START, "initalize_agent") 
@@ -668,8 +673,7 @@ graph.add_conditional_edges(
     useHunterAndZoomAgain, 
     {"use_again": "getNamesFromZoomInfo", "next_tool": "getApolloContacts"}
 ) 
-graph.add_conditional_edges("getApolloContacts", useApolloAgain, {"use_again": "getApolloContacts", "filter": "leadsFilter"}) 
-graph.add_edge("leadsFilter", "leadsToCSV") 
+graph.add_conditional_edges("getApolloContacts", useApolloAgain, {"use_again": "getApolloContacts", "filter": "leadsToCSV"}) 
 graph.add_edge("leadsToCSV", "composioOutlook")
 graph.add_edge("composioOutlook", END)
 app = graph.compile(checkpointer=checkpointer) 
@@ -677,11 +681,18 @@ app.get_graph().draw_png("workflow.png")
 
 # getApolloContacts()
 
-# result = asyncio.run(app.ainvoke(
-# {"leads": [], "leads_to_get_email": [], "zoom_info_calls": 0, "hunter_io_calls": 0, "names_page": 0},
-# config
-# ))
-# print(len(result["leads"]), "leads")
+result = asyncio.run(app.ainvoke(
+    {
+        "leads": [],
+        "leads_to_get_email": [],
+        "zoom_info_calls": 0,
+        "zoom_info_name_counter": 0,
+        "apollo_calls": 0,
+        "names_page": 0,
+    },
+    config
+))
+print(len(result["leads"]), "leads")
 
 
 
