@@ -29,8 +29,19 @@ from urllib.parse import urlparse
 import random
 from langchain.agents import create_agent 
 from filter import FilterResponse
-load_dotenv()  
 
+load_dotenv()  
+tavilyapikey = os.getenv("TAVILYAPI")   
+hunterapikey = os.getenv("HUNTERAPI") 
+zmClientId = os.getenv("ZOOMINFOCLIENTID") 
+zmClientSecret = os.getenv("ZOOMINFOCLIENTSECRET") 
+hubspotKey =  os.getenv("HUBSPOT_TOKEN") 
+geoapikey = os.getenv("GEOPLACES_KEY")
+
+
+def getLocationForCompany():
+    #TODO: helper function that calls an api for the hunter io and zoom info pipeline source 
+    ... 
 
 def namesZoomInfo(): 
     #fix this for testing and then make ml model with attributes used from Contact type
@@ -77,25 +88,14 @@ def namesZoomInfo():
     searchResponse = requests.post(url, json=payload, headers=headers, timeout=30)
     searchResponse.raise_for_status()
 
-    print(searchResponse.json()) 
+    print(searchResponse.json())  
 
 
-
-    
-
-
-
-tavilyapikey = os.getenv("TAVILYAPI")   
-hunterapikey = os.getenv("HUNTERAPI") 
-zmClientId = os.getenv("ZOOMINFOCLIENTID") 
-zmClientSecret = os.getenv("ZOOMINFOCLIENTSECRET") 
-hubspotKey =  os.getenv("HUBSPOT_TOKEN")
 
 config = {"configurable": {"thread_id": "1"}} 
 checkpointer = InMemorySaver() 
 agent = init_chat_model(model_provider="ollama", model="qwen3.5:4b")  
-graph = StateGraph(StateSchema) 
-
+graph = StateGraph(StateSchema)  
 
 
 
@@ -217,7 +217,7 @@ def getFullContact(state: StateSchema) -> dict:
             lead_first_name=attrs["firstName"],
             lead_last_name=attrs["lastName"],
             company_role=attrs.get("jobTitle"),
-            state=chosenState, 
+            state=attrs.get("state"), 
             id=record["id"]
         )
         if currLead.company in seen_companies:

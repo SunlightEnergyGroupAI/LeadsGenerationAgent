@@ -15,7 +15,8 @@ class Contact:
     state: str | None = None
     industry: str | None = None
     id: str | None = None 
-
+    company_address: str | None = None 
+    
 
 
 
