@@ -29,12 +29,62 @@ from urllib.parse import urlparse
 import random
 from langchain.agents import create_agent 
 from filter import FilterResponse
-
-
-
-
-
 load_dotenv()  
+
+
+def namesZoomInfo(): 
+    #fix this for testing and then make ml model with attributes used from Contact type
+    states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"}
+    chosenState = states.get(random.randint(1, 4))
+    nameOnlyContacts: list[Contact] = []
+
+    zmclientid = os.getenv("ZOOMINFOCLIENTID") 
+    zmclientsecret = os.getenv("ZOOMINFOCLIENTSECRET") 
+
+    tokenResponse = requests.post(
+        url="https://api.zoominfo.com/gtm/oauth/v1/token",
+        headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"}, 
+        auth=(zmclientid,zmclientsecret), 
+        data={"grant_type": "client_credentials"},        
+        timeout=30
+    )
+    token = tokenResponse.json() 
+    token = token["access_token"] 
+    print(token)
+
+    # page = fetchNewZoomInfoPageNumber()
+    url = "https://api.zoominfo.com/gtm/data/v1/contacts/search?page[number]=1&page[size]=1"
+    headers = {
+        "accept": "application/vnd.api+json",
+        "content-type": "application/vnd.api+json",
+        "Authorization": f"Bearer {token}"
+    }
+    payload = {
+        "data": {
+            "type": "ContactSearch",
+            "attributes": {
+                "managementLevel": "C Level Exec, VP Level Exec,Director",
+                "executivesOnly": True,
+                "contactAccuracyScoreMin": "75",
+                "contactAccuracyScoreMax": "99",
+                "employeeRangeMin": "20",
+                "employeeRangeMax": "800",
+                "state": chosenState,
+                "industryCodes": "Manufacturing,Hospitality,Retail"
+            }
+        }
+    }
+    searchResponse = requests.post(url, json=payload, headers=headers, timeout=30)
+    searchResponse.raise_for_status()
+
+    print(searchResponse.json()) 
+
+
+
+    
+
+
+
 tavilyapikey = os.getenv("TAVILYAPI")   
 hunterapikey = os.getenv("HUNTERAPI") 
 zmClientId = os.getenv("ZOOMINFOCLIENTID") 
@@ -365,45 +415,8 @@ def model_classifier():
 
 
 
-def LLM_Filter(state: StateSchema):  
-    new_leads: list[Contact] = [] 
-
-    agent_prompt = """ 
-    You are a kind and helpful assistant who will act as a judge, determining whether this company fits our ICP 
-
-    Our ICP are small to medium size companies (NO LARGE CORPORATIONS)
-    - companies who are locted in NJ, NY, MD, PA 
-    - organizations that are related to manufacturing, hospitality, retail, machinery, pharma, religous groups, etc because we help clients manage their energy 
-    
-    These are the most important features because we want to make sure that they are in an industry where it makes sense for us because we help our clients shop for energy in 
-    deregulated states (Electricity & Gas)   
-
-    For the lead we want it to be someone high up that our BDR can call and we have a realistic chance of getting a meeting 
-
-    if a company fits our icp then icp_verdict is True 
-    if a company does not fit our icp then icp_verdict is False
-    """ 
-    sysprompt = SystemMessage(agent_prompt)  
-    judge_agent = init_chat_model(model="qwen3:1.7b", model_provider="ollama").with_structured_output(FilterResponse) 
-    for contact in state["leads"]:  
-        lead_name = contact.lead_first_name + " " + contact.lead_last_name
-        query = f"""
-        Here is a company, does it fit our ICP? (Some fields may have no value): 
-        Company Name: {contact.company},  
-        Company State: {contact.state}, 
-        Lead's Name: {lead_name}, 
-        Lead's Title: {contact.company_role} 
-        State: {contact.state}, 
-        Industry: {contact.industry}  
-
-        Show your work step by step, and double check your reasoning
-        """ 
-        verdict = judge_agent.invoke([sysprompt, query]) 
-        if verdict["icp_verdict"] == True: 
-            new_leads.append(contact) 
-        else: 
-            continue 
-    return {"filtered_leads": new_leads}
+def leadsFilter(state: StateSchema) -> dict: 
+    return {}
         
 
 
@@ -639,7 +652,7 @@ graph.add_node(getNamesFromZoomInfo)
 graph.add_node(findemailWithHunter)  
 graph.add_node(getApolloContacts)
 graph.add_node(leadsToCSV) 
-graph.add_node(LLM_Filter)
+graph.add_node(leadsFilter) 
 graph.add_node(composioOutlook) 
 
 graph.add_edge(START, "initalize_agent") 
@@ -655,8 +668,8 @@ graph.add_conditional_edges(
     useHunterAndZoomAgain, 
     {"use_again": "getNamesFromZoomInfo", "next_tool": "getApolloContacts"}
 ) 
-graph.add_conditional_edges("getApolloContacts", useApolloAgain, {"use_again": "getApolloContacts", "filter": "LLM_Filter"}) 
-graph.add_edge("LLM_Filter", "leadsToCSV") 
+graph.add_conditional_edges("getApolloContacts", useApolloAgain, {"use_again": "getApolloContacts", "filter": "leadsFilter"}) 
+graph.add_edge("leadsFilter", "leadsToCSV") 
 graph.add_edge("leadsToCSV", "composioOutlook")
 graph.add_edge("composioOutlook", END)
 app = graph.compile(checkpointer=checkpointer) 
