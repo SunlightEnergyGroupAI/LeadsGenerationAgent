@@ -151,7 +151,13 @@ def enrichContactZoomInfo(contact: Contact, token: str) -> Contact:
         "data": {
             "type": "ContactEnrich",
             "attributes": {
-                "outputFields": ["email", "phone", "mobilePhone"],
+                "outputFields": [
+                        "email", "phone", "mobilePhone",
+                        "state", "street", "country",
+                        "companyState", "companyStreet",
+                        "directPhoneDoNotCall", "mobilePhoneDoNotCall",
+                        "companyPrimaryIndustry", "companyWebsite"
+                ],
                 "matchPersonInput": [{"personId": int(contact.id)}]
             }
         }
@@ -162,8 +168,11 @@ def enrichContactZoomInfo(contact: Contact, token: str) -> Contact:
     if results:
         attrs = results[0].get("attributes", {})
         contact.email = attrs.get("email")
-        contact.phone = attrs.get("phone") or attrs.get("mobilePhone")
-    contact.data_source = "Zoom Info"
+        contact.phone = attrs.get("phone")
+        contact.company_address = attrs.get("street") 
+        contact.state = attrs.get("state")  
+        contact.industry = (attrs.get("company", {}).get("primaryIndustry") or [None])[0]    
+        contact.data_source = "Zoom Info"
     return contact
 
 
@@ -227,7 +236,8 @@ def getFullContact(state: StateSchema) -> dict:
             continue
         seen_companies.add(currLead.company) 
         addedContact = enrichContactZoomInfo(currLead, token) 
-        addedContact.data_source = "Zoom Info"
+        addedContact.data_source = "Zoom Info" 
+
         uniqueContacts.append(addedContact)
     writeNewZoomInfoPageNumber(page) 
     return {
@@ -372,7 +382,7 @@ def enrichApolloContact(apollo_id: str) -> Contact | None:
 
 def getApolloContacts(state: StateSchema) -> dict: 
     contacts: list[Contact] = [] 
-    url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=director&person_seniorities[]=vp&person_seniorities[]=founder&organization_locations[]=New%20Jersey&organization_locations[]=New%20York&organization_locations[]=Maryland&organization_locations[]=Pennsylvania&organization_industries[]=machinery&organization_industries[]=electrical%2Felectronic%20manufacturing&organization_industries[]=plastics&organization_industries[]=pharmaceuticals&organization_industries[]=building%20materials&organization_industries[]=hotel&organization_industries[]=hospitality&organization_industries[]=Food%20Production&organization_industries[]=supermarkets&organization_industries[]=hotel%20management&organization_industries[]=resort&contact_email_status[]=verified&contact_email_status[]=likely%20to%20engage&contact_email_status[]=unverified&organization_num_employees_ranges[]=10%2C1000&page=1&per_page=1" 
+    url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=director&person_seniorities[]=vp&person_seniorities[]=founder&organization_locations[]=New%20Jersey%2C%20US&organization_locations[]=New%20York%2C%20US&organization_locations[]=Maryland%2C%20US&organization_locations[]=Pennsylvania%2C%20US&person_locations[]=New%20Jersey%2C%20US&person_locations[]=New%20York%2C%20US&person_locations[]=Maryland%2C%20US&person_locations[]=Pennsylvania%2C%20US&q_organization_keyword_tags[]=manufacturing&q_organization_keyword_tags[]=machinery&q_organization_keyword_tags[]=plastics&q_organization_keyword_tags[]=pharmaceuticals&q_organization_keyword_tags[]=building%20materials&q_organization_keyword_tags[]=food%20production&q_organization_keyword_tags[]=hospitality&q_organization_keyword_tags[]=hotels&q_organization_keyword_tags[]=supermarkets&q_organization_keyword_tags[]=resorts&contact_email_status[]=verified&contact_email_status[]=likely%20to%20engage&contact_email_status[]=unverified&organization_num_employees_ranges[]=10%2C1000&page=1&per_page=1"
     pageNumber = fetchNewApolloPageNumber()  
     url = url.replace("&page=1&", f"&page={pageNumber}&")
 
@@ -651,7 +661,7 @@ def useApolloAgain(state: StateSchema) -> str:
 
 
 
-graph.add_node(initalize_agent) 
+
 graph.add_node(getFullContact) 
 graph.add_node(getNamesFromZoomInfo) 
 graph.add_node(findemailWithHunter)  
@@ -660,8 +670,7 @@ graph.add_node(leadsToCSV)
 graph.add_node(leadsFilter)
 graph.add_node(composioOutlook) 
 
-graph.add_edge(START, "initalize_agent") 
-graph.add_edge("initalize_agent", "getFullContact")  
+graph.add_edge(START, "getFullContact") 
 graph.add_conditional_edges(
     "getFullContact", 
     useZoomInfoAgain, 
@@ -681,18 +690,18 @@ app.get_graph().draw_png("workflow.png")
 
 # getApolloContacts()
 
-result = asyncio.run(app.ainvoke(
-    {
-        "leads": [],
-        "leads_to_get_email": [],
-        "zoom_info_calls": 0,
-        "zoom_info_name_counter": 0,
-        "apollo_calls": 0,
-        "names_page": 0,
-    },
-    config
-))
-print(len(result["leads"]), "leads")
+# result = asyncio.run(app.ainvoke(
+#     {
+#         "leads": [],
+#         "leads_to_get_email": [],
+#         "zoom_info_calls": 0,
+#         "zoom_info_name_counter": 0,
+#         "apollo_calls": 0,
+#         "names_page": 0,
+#     },
+#     config
+# ))
+# print(len(result["leads"]), "leads")
 
 
 
