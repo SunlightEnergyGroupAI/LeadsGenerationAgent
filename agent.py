@@ -176,7 +176,7 @@ def enrichContactZoomInfo(contact: Contact, token: str) -> Contact:
     return contact
 
 
-def getFullContact(state: StateSchema) -> dict:
+def zoomInfoFindAndEnrich(state: StateSchema) -> dict:
     states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"}
     chosenState = states.get(random.randint(1, 4))
     uniqueContacts: list[Contact] = []
@@ -247,7 +247,7 @@ def getFullContact(state: StateSchema) -> dict:
     }
 
 
-def getNamesFromZoomInfo(state: StateSchema) -> dict:
+def zoomInfoFindNames(state: StateSchema) -> dict:
     states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"}
     chosenState = states.get(random.randint(1, 4))
     nameOnlyContacts: list[Contact] = []
@@ -318,7 +318,7 @@ def getNamesFromZoomInfo(state: StateSchema) -> dict:
         "zoom_info_name_counter": state["zoom_info_name_counter"] + 1
     } 
 
-def findemailWithHunter(state: StateSchema) -> dict: 
+def hunterFindEmails(state: StateSchema) -> dict: 
     contacts: list[Contact] = []  
     url = "https://api.hunter.io/v2/email-finder"
     for contact in state["leads_to_get_email"]:
@@ -380,7 +380,7 @@ def enrichApolloContact(apollo_id: str) -> Contact | None:
         id=apollo_id,
     )
 
-def getApolloContacts(state: StateSchema) -> dict: 
+def apolloFindAndEnrich(state: StateSchema) -> dict: 
     contacts: list[Contact] = [] 
     url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=director&person_seniorities[]=vp&person_seniorities[]=founder&organization_locations[]=New%20Jersey%2C%20US&organization_locations[]=New%20York%2C%20US&organization_locations[]=Maryland%2C%20US&organization_locations[]=Pennsylvania%2C%20US&person_locations[]=New%20Jersey%2C%20US&person_locations[]=New%20York%2C%20US&person_locations[]=Maryland%2C%20US&person_locations[]=Pennsylvania%2C%20US&q_organization_keyword_tags[]=manufacturing&q_organization_keyword_tags[]=machinery&q_organization_keyword_tags[]=plastics&q_organization_keyword_tags[]=pharmaceuticals&q_organization_keyword_tags[]=building%20materials&q_organization_keyword_tags[]=food%20production&q_organization_keyword_tags[]=hospitality&q_organization_keyword_tags[]=hotels&q_organization_keyword_tags[]=supermarkets&q_organization_keyword_tags[]=resorts&contact_email_status[]=verified&contact_email_status[]=likely%20to%20engage&contact_email_status[]=unverified&organization_num_employees_ranges[]=10%2C1000&page=1&per_page=1"
     pageNumber = fetchNewApolloPageNumber()  
@@ -428,7 +428,7 @@ def model_classifier():
 
 
 
-def leadsFilter(state: StateSchema) -> dict: 
+def FilterLeads(state: StateSchema) -> dict: 
     #TODO: build the ML model to filter the leads 
     return {}
         
@@ -456,7 +456,7 @@ def leadsToCSV(state: StateSchema):
 
 
 
-async def composioOutlook(state: StateSchema) -> dict:
+async def SendCSV_ToEmail(state: StateSchema) -> dict:
     composioKey = os.getenv("COMPOSIO_KEY")
     if not composioKey:
         raise ValueError("COMPOSIO_KEY missing from .env")
@@ -640,19 +640,19 @@ CONTACT_WORDS = ("contact", "about", "team", "leadership", "staff", "people", "m
 #Routing Nodes (Conditional Logic) 
 
 def useZoomInfoAgain(state: StateSchema) -> str: 
-    if state["zoom_info_calls"] < 2: 
+    if state["zoom_info_calls"] < 1: 
         return "use_again"
     else: 
         return "next_tool"
 
 def useHunterAndZoomAgain(state: StateSchema) -> str: 
-    if state["zoom_info_name_counter"] < 5: 
+    if state["zoom_info_name_counter"] < 3: 
         return "use_again" 
     else: 
         return "next_tool" 
 
 def useApolloAgain(state: StateSchema) -> str: 
-    if state["apollo_calls"] < 5: 
+    if state["apollo_calls"] < 7: 
         return "use_again" 
     else: 
         return "filter" 
@@ -662,29 +662,29 @@ def useApolloAgain(state: StateSchema) -> str:
 
 
 
-graph.add_node(getFullContact) 
-graph.add_node(getNamesFromZoomInfo) 
-graph.add_node(findemailWithHunter)  
-graph.add_node(getApolloContacts)
+graph.add_node(zoomInfoFindAndEnrich) 
+graph.add_node(zoomInfoFindNames) 
+graph.add_node(hunterFindEmails)  
+graph.add_node(apolloFindAndEnrich)
 graph.add_node(leadsToCSV) 
-graph.add_node(leadsFilter)
-graph.add_node(composioOutlook) 
+graph.add_node(FilterLeads)
+graph.add_node(SendCSV_ToEmail) 
 
-graph.add_edge(START, "getFullContact") 
+graph.add_edge(START, "zoomInfoFindAndEnrich") 
 graph.add_conditional_edges(
-    "getFullContact", 
+    "zoomInfoFindAndEnrich", 
     useZoomInfoAgain, 
-    {"use_again": "getFullContact", "next_tool": "getNamesFromZoomInfo"} 
+    {"use_again": "zoomInfoFindAndEnrich", "next_tool": "zoomInfoFindNames"} 
 ) 
-graph.add_edge("getNamesFromZoomInfo", "findemailWithHunter") 
+graph.add_edge("zoomInfoFindNames", "hunterFindEmails") 
 graph.add_conditional_edges(
-    "findemailWithHunter", 
+    "hunterFindEmails", 
     useHunterAndZoomAgain, 
-    {"use_again": "getNamesFromZoomInfo", "next_tool": "getApolloContacts"}
+    {"use_again": "zoomInfoFindNames", "next_tool": "apolloFindAndEnrich"}
 ) 
-graph.add_conditional_edges("getApolloContacts", useApolloAgain, {"use_again": "getApolloContacts", "filter": "leadsToCSV"}) 
-graph.add_edge("leadsToCSV", "composioOutlook")
-graph.add_edge("composioOutlook", END)
+graph.add_conditional_edges("apolloFindAndEnrich", useApolloAgain, {"use_again": "apolloFindAndEnrich", "filter": "leadsToCSV"}) 
+graph.add_edge("leadsToCSV", "SendCSV_ToEmail")
+graph.add_edge("SendCSV_ToEmail", END)
 app = graph.compile(checkpointer=checkpointer) 
 app.get_graph().draw_png("workflow.png")
 
