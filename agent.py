@@ -493,22 +493,16 @@ async def searchWeb(state: StateSchema):
     and pull emails, phones and exec-title lines.
 
     Returns:
-    - list[dict]: one dict per company with company_domain, website, emails, phones, title_lines
+    - dict: {"leads": contact}, one Contact per new company that has an email on its site
     """ 
     contact: list[Contact] = [] 
 
-    #check if in hubspot, check if its in current list ie state["leads"] 
-    #if its unique lead append to contact list 
-
-
-    # at end of the function return {"leads": contact}
-
     tavilyEngine = TavilyClient(api_key=tavilyapikey)
     searchEngine = DDGS()
-    queryMakerLLM = init_chat_model(model_provider="ollama", model="nemotron-3-nano:30b-cloud")
+    queryMakerLLM = init_chat_model(model_provider="ollama", model="nemotron-3-nano:30b-cloud").with_structured_output(Query)
 
-    sq = queryMakerLLM.invoke([icp_prompt]).content
-    sq2 = queryMakerLLM.invoke([icp_prompt2]).content
+    sq = queryMakerLLM.invoke([icp_prompt])["search_query"]
+    sq2 = queryMakerLLM.invoke([icp_prompt2])["search_query"]
     print("BING QUERY:", sq)
     print("YANDEX QUERY:", sq2)
     urls = []
@@ -542,7 +536,7 @@ async def searchWeb(state: StateSchema):
     )
     junk = ("example.com", "sentry", "wixpress", ".png", ".jpg", ".webp")
 
-    results = []
+    seen_companies = {c.company for c in state.get("leads", [])}
     async with AsyncWebCrawler() as crawler:
         for domain, home_url in companies.items():
             print("crawling:", domain)
@@ -571,16 +565,23 @@ async def searchWeb(state: StateSchema):
             phones = sorted(set(phone_re.findall(text)))[:3]
             title_lines = [m.group(0).strip()[:120] for m in title_re.finditer(text)][:5]
 
-            results.append({
-                "company_domain": domain,
-                "website": home_url,
-                "emails": emails[:5],
-                "phones": phones,
-                "title_lines": title_lines,
-            })
             print(f"{domain} | emails: {len(emails)} | phones: {len(phones)} | title lines: {len(title_lines)}")
+            if not emails:
+                continue
+            currLead = Contact(
+                company=domain,
+                company_role=title_lines[0] if title_lines else None,
+                email=emails[0],
+                phone=phones[0] if phones else None,
+            )
+            if currLead.company in seen_companies:
+                continue
+            elif hubspotSearch("companies", "domain", domain):
+                continue
+            seen_companies.add(currLead.company)
+            contact.append(currLead)
 
-    return results
+    return {"leads": contact}
 
 
 icp_prompt = """
