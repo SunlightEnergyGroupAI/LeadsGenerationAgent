@@ -40,7 +40,8 @@ geoapikey = os.getenv("GEOPLACES_KEY")
 locationiqkey = os.getenv("LOCATIONIQ_KEY")
 
 
-def getLocationForCompany(company_name: str) -> dict | None: 
+def getLocationForCompany(company_name: str) -> dict | None:  
+    #implement into the hunter io function with zoom info
     try: 
         company_name_url = company_name.replace(" ", "+")
         url = f"https://us1.locationiq.com/v1/search?q={company_name_url}&format=json&addressdetails=1&statecode=1&bounded=0&limit=1&accept-language=en&countrycodes=us&normalizeaddress=0&normalizecity=1&postaladdress=1&matchquality=0&normalizeimportance=1&dedupe=1&namedetails=0&extratags=1&polygon_geojson=0&polygon_kml=0&polygon_svg=0&polygon_text=0&key={locationiqkey}"
@@ -437,17 +438,14 @@ def apolloFindAndEnrich(state: StateSchema) -> dict:
     return {"leads": contacts, "apollo_calls": state["apollo_calls"]+1} 
 
 
-        
-def model_classifier():  
-    #ignore this is optional and for later in order to improve lead filtering after retreival 
 
-    ...
 
 
 
 
 def FilterLeads(state: StateSchema) -> dict: 
-    #TODO: build the ML model to filter the leads 
+    #TODO: build the ML model to filter the leads  
+    #WILL BE IN V2 
     return {}
         
 
