@@ -36,12 +36,25 @@ hunterapikey = os.getenv("HUNTERAPI")
 zmClientId = os.getenv("ZOOMINFOCLIENTID") 
 zmClientSecret = os.getenv("ZOOMINFOCLIENTSECRET") 
 hubspotKey =  os.getenv("HUBSPOT_TOKEN") 
-geoapikey = os.getenv("GEOPLACES_KEY")
+geoapikey = os.getenv("GEOPLACES_KEY") 
+locationiqkey = os.getenv("LOCATIONIQ_KEY")
 
 
-def getLocationForCompany():
-    #TODO: helper function that calls an api for the hunter io and zoom info pipeline source 
-    ... 
+def getLocationForCompany(company_name: str) -> dict | None: 
+    try: 
+        company_name_url = company_name.replace(" ", "+")
+        url = f"https://us1.locationiq.com/v1/search?q={company_name_url}&format=json&addressdetails=1&statecode=1&bounded=0&limit=1&accept-language=en&countrycodes=us&normalizeaddress=0&normalizecity=1&postaladdress=1&matchquality=0&normalizeimportance=1&dedupe=1&namedetails=0&extratags=1&polygon_geojson=0&polygon_kml=0&polygon_svg=0&polygon_text=0&key={locationiqkey}"
+        response = requests.get(url) 
+        json_data = response.json()
+        return {
+            "city": json_data[0]["address"]["city"], 
+            "state": json_data[0]["address"]["state"]
+        }
+    except: 
+        return None 
+
+print(getLocationForCompany("Kiva Han Coffee"))
+
 
 def namesZoomInfo(): 
     #fix this for testing and then make ml model with attributes used from Contact type
@@ -80,7 +93,8 @@ def namesZoomInfo():
                 "contactAccuracyScoreMax": "99",
                 "employeeRangeMin": "20",
                 "employeeRangeMax": "800",
-                "state": chosenState,
+                "state": chosenState, 
+                "country": "United States",
                 "industryCodes": "Manufacturing,Hospitality,Retail"
             }
         }
@@ -88,7 +102,10 @@ def namesZoomInfo():
     searchResponse = requests.post(url, json=payload, headers=headers, timeout=30)
     searchResponse.raise_for_status()
 
-    print(searchResponse.json())  
+    print(searchResponse.json())   
+
+# getLocationForCompany("Commonplace Coffee")
+# namesZoomInfo()
 
 
 
@@ -281,6 +298,7 @@ def zoomInfoFindNames(state: StateSchema) -> dict:
                 "employeeRangeMin": "20",
                 "employeeRangeMax": "800",
                 "state": chosenState,
+                "country": "United States",
                 "industryCodes": "Manufacturing,Hospitality,Retail"
             }
         }
