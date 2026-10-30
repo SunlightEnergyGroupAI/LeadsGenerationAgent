@@ -39,22 +39,28 @@ hubspotKey =  os.getenv("HUBSPOT_TOKEN")
 geoapikey = os.getenv("GEOPLACES_KEY") 
 locationiqkey = os.getenv("LOCATIONIQ_KEY")
 
+ICP_STATES = {"New York", "New Jersey", "Maryland", "Pennsylvania"}
 
-def getLocationForCompany(company_name: str) -> dict | None:  
-    #implement into the hunter io function with zoom info
-    try: 
-        company_name_url = company_name.replace(" ", "+")
-        url = f"https://us1.locationiq.com/v1/search?q={company_name_url}&format=json&addressdetails=1&statecode=1&bounded=0&limit=1&accept-language=en&countrycodes=us&normalizeaddress=0&normalizecity=1&postaladdress=1&matchquality=0&normalizeimportance=1&dedupe=1&namedetails=0&extratags=1&polygon_geojson=0&polygon_kml=0&polygon_svg=0&polygon_text=0&key={locationiqkey}"
-        response = requests.get(url) 
-        json_data = response.json()
+def getLocationForCompany(company_name: str, state: str | None = None) -> dict | None:
+    try:
+        q = f"{company_name}, {state}" if state else company_name
+        response = requests.get(
+            "https://us1.locationiq.com/v1/search",
+            params={"q": q, "format": "json", "addressdetails": 1, "countrycodes": "us",
+                    "limit": 1, "key": locationiqkey},
+            timeout=15,
+        )
+        time.sleep(0.6)
+        address = response.json()[0]["address"]
         return {
-            "city": json_data[0]["address"]["city"], 
-            "state": json_data[0]["address"]["state"]
+            "city": address.get("city") or address.get("town") or address.get("village"),
+            "state": address.get("state"),
         }
-    except: 
-        return None 
+    except Exception:
+        return None
 
-print(getLocationForCompany("Kiva Han Coffee"))
+
+
 
 
 def namesZoomInfo(): 
@@ -109,8 +115,7 @@ def namesZoomInfo():
 # namesZoomInfo()
 
 
-
-config = {"configurable": {"thread_id": "1"}} 
+config = {"configurable": {"thread_id": "1"}, "recursion_limit": 100}
 checkpointer = InMemorySaver() 
 agent = init_chat_model(model_provider="ollama", model="qwen3.5:4b")  
 graph = StateGraph(StateSchema)  
@@ -138,7 +143,10 @@ def hubspotSearch(objectType: str, propertyName: str, value: str) -> list:
 
 
 def isInHubspot(contact: Contact) -> bool:
-    companies = hubspotSearch("companies", "name", contact.company.strip())
+    name = (contact.company or "").strip()
+    if not name:
+        return False
+    companies = hubspotSearch("companies", "name", name)
     if not companies:
         return False
     leads = hubspotSearch("leads", "associations.company", companies[0]["id"])
@@ -254,7 +262,9 @@ def zoomInfoFindAndEnrich(state: StateSchema) -> dict:
             continue
         seen_companies.add(currLead.company) 
         addedContact = enrichContactZoomInfo(currLead, token) 
-        addedContact.data_source = "Zoom Info" 
+        addedContact.data_source = "Zoom Info"  
+
+    
 
         uniqueContacts.append(addedContact)
     writeNewZoomInfoPageNumber(page) 
@@ -337,20 +347,21 @@ def zoomInfoFindNames(state: StateSchema) -> dict:
         "zoom_info_name_counter": state["zoom_info_name_counter"] + 1
     } 
 
-def hunterFindEmails(state: StateSchema) -> dict: 
+def hunterFindEmails(state: StateSchema) -> dict:  
     contacts: list[Contact] = []  
     url = "https://api.hunter.io/v2/email-finder"
-    for contact in state["leads_to_get_email"]:
+    for contact in state.get("leads_to_get_email"):
         first_name = contact.lead_first_name 
         last_name = contact.lead_last_name 
         company_name = contact.company  
-        role = contact.company_role  
-        person_state = contact.state
+        role = contact.company_role
         response = requests.get(url, params={"first_name": first_name, "last_name": last_name, "company": company_name, "api_key": hunterapikey}, timeout=30) 
         data = response.json() 
-        lead_email = data["data"]["email"] 
-        contacts.append(Contact(company_name, first_name, last_name, role, email=lead_email, state=person_state, data_source="Zoom info & Hunter.io")) 
+        lead_email = data.get("data",{}).get("email") 
+        companyInfo = getLocationForCompany(company_name) or {}
+        contacts.append(Contact(company_name, first_name, last_name, role, email=lead_email, state=companyInfo.get("state"), data_source="Zoom info & Hunter.io", city=companyInfo.get("city"))) 
     return {"leads": contacts}  
+    
 
 
 def fetchNewApolloPageNumber() -> int:  
@@ -377,7 +388,8 @@ def enrichApolloContact(apollo_id: str) -> Contact | None:
         },
         json={"id": apollo_id},
     )
-    response.raise_for_status()
+    response.raise_for_status() 
+    print(response.json())
 
     person = response.json().get("person")
     if not person:
@@ -396,10 +408,12 @@ def enrichApolloContact(apollo_id: str) -> Contact | None:
         phone=phone_numbers[0].get("sanitized_number") if phone_numbers else None,
         state=person.get("state"), 
         industry=organization.get("industry"),
-        id=apollo_id,
+        id=apollo_id, 
+        city=person.get("city")
     )
 
 def apolloFindAndEnrich(state: StateSchema) -> dict: 
+    print("USING APOLLO") 
     contacts: list[Contact] = [] 
     url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=director&person_seniorities[]=vp&person_seniorities[]=founder&organization_locations[]=New%20Jersey%2C%20US&organization_locations[]=New%20York%2C%20US&organization_locations[]=Maryland%2C%20US&organization_locations[]=Pennsylvania%2C%20US&person_locations[]=New%20Jersey%2C%20US&person_locations[]=New%20York%2C%20US&person_locations[]=Maryland%2C%20US&person_locations[]=Pennsylvania%2C%20US&q_organization_keyword_tags[]=manufacturing&q_organization_keyword_tags[]=machinery&q_organization_keyword_tags[]=plastics&q_organization_keyword_tags[]=pharmaceuticals&q_organization_keyword_tags[]=building%20materials&q_organization_keyword_tags[]=food%20production&q_organization_keyword_tags[]=hospitality&q_organization_keyword_tags[]=hotels&q_organization_keyword_tags[]=supermarkets&q_organization_keyword_tags[]=resorts&contact_email_status[]=verified&contact_email_status[]=likely%20to%20engage&contact_email_status[]=unverified&organization_num_employees_ranges[]=10%2C1000&page=1&per_page=1"
     pageNumber = fetchNewApolloPageNumber()  
@@ -413,13 +427,16 @@ def apolloFindAndEnrich(state: StateSchema) -> dict:
     }
     response = requests.post(url, headers=headers)
     response.raise_for_status()  
-    dataDict = response.json()
+    dataDict = response.json() 
+
+    print(response.json())
 
     people = dataDict.get("people", [])
     if not people:
         print(f"No people on page {pageNumber}. Reached the end of the results.")
         return {"leads": [], "apollo_calls": state["apollo_calls"] + 1}
 
+    seen_companies = {(c.company or "").lower() for c in state.get("leads", [])}
     for person in people:
         organization = person.get("organization") or {}
         curr_lead = Contact(
@@ -429,14 +446,18 @@ def apolloFindAndEnrich(state: StateSchema) -> dict:
             data_source="Apollo",
             id=person["id"],
         )
-        if not isInHubspot(curr_lead):
+        if (curr_lead.company or "").lower() in seen_companies:
+            print("skip, already have this company:", curr_lead.company)
+            continue
+        if isInHubspot(curr_lead):
+            print("skip, already in HubSpot:", curr_lead.company)
+        else:
             enriched = enrichApolloContact(curr_lead.id)
             if enriched is None:
                 continue
             contacts.append(enriched)
     writeNewApolloPageNumber(pageNumber) 
     return {"leads": contacts, "apollo_calls": state["apollo_calls"]+1} 
-
 
 
 
@@ -452,16 +473,25 @@ def FilterLeads(state: StateSchema) -> dict:
 
 
 def leadsToCSV(state: StateSchema): 
-    #change to filtered_leads later
-    
+    #change to filtered_leads later 
+    for contact in state["leads"]:
+        if not contact.city or not contact.state:
+            loc = getLocationForCompany(contact.company, contact.state) or {}
+            contact.city = contact.city or loc.get("city")
+            contact.state = contact.state or loc.get("state")
+
+    print(f"{len(state['leads'])} leads for the CSV")
+
+
     dataframe = pd.DataFrame({
         "company": [contact.company for contact in state["leads"]], 
         "lead_first_name": [contact.lead_first_name for contact in state["leads"]], 
         "lead_last_name": [contact.lead_last_name for contact in state["leads"]], 
         "company_role": [contact.company_role for contact in state["leads"]],
         "phone": [contact.phone for contact in state["leads"]], 
-        "email": [contact.email for contact in state["leads"]], 
-        "state": [contact.state for contact in state["leads"]], 
+        "email": [contact.email for contact in state["leads"]],  
+        "city": [contact.city for contact in state["leads"]],
+        "state": [contact.state for contact in state["leads"]],  
         "data_source": [contact.data_source for contact in state["leads"]]
     })  
     dataframe.to_csv("newleads.csv", index=False)  
@@ -486,7 +516,7 @@ async def SendCSV_ToEmail(state: StateSchema) -> dict:
     )
     with open("newleads.csv") as f:
         csvText = f.read()
-    leadCount = len(state.get("filtered_leads", []))
+        leadCount = len(state["leads"])
 
     code = f"""
 path = "/home/user/newleads.csv"
@@ -519,7 +549,8 @@ async def searchWeb(state: StateSchema):
     and pull emails, phones and exec-title lines.
 
     Returns:
-    - dict: {"leads": contact}, one Contact per new company that has an email on its site
+    - dict: {"leads": contact}, one Contact per new company that has an email on its site 
+
     """ 
     contact: list[Contact] = [] 
 
@@ -605,7 +636,7 @@ async def searchWeb(state: StateSchema):
             elif hubspotSearch("companies", "domain", domain):
                 continue
             seen_companies.add(currLead.company)
-            contact.append(currLead)
+            contact.append(currLead) 
 
     return {"leads": contact}
 
@@ -663,13 +694,13 @@ def useZoomInfoAgain(state: StateSchema) -> str:
         return "next_tool"
 
 def useHunterAndZoomAgain(state: StateSchema) -> str: 
-    if state["zoom_info_name_counter"] < 3: 
+    if state["zoom_info_name_counter"] < 5: 
         return "use_again" 
     else: 
         return "next_tool" 
 
 def useApolloAgain(state: StateSchema) -> str: 
-    if state["apollo_calls"] < 7: 
+    if state["apollo_calls"] < 50: 
         return "use_again" 
     else: 
         return "filter" 
@@ -685,7 +716,8 @@ graph.add_node(hunterFindEmails)
 graph.add_node(apolloFindAndEnrich)
 graph.add_node(leadsToCSV) 
 graph.add_node(FilterLeads)
-graph.add_node(SendCSV_ToEmail) 
+graph.add_node(SendCSV_ToEmail)  
+graph.add_node(searchWeb)
 
 graph.add_edge(START, "zoomInfoFindAndEnrich") 
 graph.add_conditional_edges(
@@ -716,7 +748,8 @@ app.get_graph().draw_png("workflow.png")
 #         "apollo_calls": 0,
 #         "names_page": 0,
 #     },
-#     config
+#     config, 
+    
 # ))
 # print(len(result["leads"]), "leads")
 

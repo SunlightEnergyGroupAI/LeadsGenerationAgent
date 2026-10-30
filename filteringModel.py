@@ -2,5 +2,8 @@ from sklearn.ensemble import GradientBoostingClassifier, VotingClassifier, Rando
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer  
 import pandas as pd 
 import numpy as np  
+from sklearn.ensemble import VotingClassifier 
 
+
+classifier = VotingClassifier()
 

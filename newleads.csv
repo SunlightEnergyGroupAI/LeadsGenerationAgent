@@ -1,13 +1,10 @@
-company,lead_first_name,lead_last_name,company_role,phone,email,state,data_source
-Kiva Han Coffee,Ed,Wethli,President,(724) 742-2326,,,Zoom Info
-Commonplace Coffee,Alisa,Paul,Chief Executive Officer,+44 7346 573931,alisa@commonplacecoffee.com,,Zoom Info
-Carvel,Eddie,Cumart,Chief Executive Officer Carvel Ice Cream Trucks,,,,Zoom info & Hunter.io
-Gelbstein's Bakery,Joel,Tesser,Chief Executive Officer & Founder,,,,Zoom info & Hunter.io
-Nathan's Famous,Eric,Gatoff,Chief Executive Officer,,egatoff@nathansfamous.com,,Zoom info & Hunter.io
-Oteri,Lisa,Oteri-Collier,President,,,,Zoom info & Hunter.io
-Splendid Spoon,Nicole,Centeno,Founder & Co-Chief Executive Officer,,nicole@splendidspoon.com,,Zoom info & Hunter.io
-Manhattan Group,Axel,Koester,"Chief Strategy Officer- Recruitment, Digital Marketing & Alliance Program",,ak@manhattangroup.co,Victoria,Apollo
-The Greene Group,Evan,Greene,CEO & Founder,,evan@the-greenegroup.com,New York,Apollo
-Ampcontrol,Joachim,Lohse,Founder & CEO,,joachim@ampcontrol.io,Bavaria,Apollo
-OWKIN,Thomas,Clozel,CEO and Co-founder,,thomas.clozel@owkin.com,New York,Apollo
-Skyline Windows,Adrian,Lowenstein,Managing Director - National Business Development,,alowenstein@skylinewindows.com,New York,Apollo
+company,lead_first_name,lead_last_name,company_role,phone,email,city,state,data_source
+Caff Vergnano,Carolina,Vergnano,Chief Executive Officer,+39 011 945 5111,c.vergnano@caffevergnano.com,,Piedmont,Zoom Info
+Amana Society,Jason,Brancel,President & Chief Executive Officer,,,Amana,Iowa,Zoom info & Hunter.io
+Breadsmith,Tim,Malouf,President & Chief Executive Officer,,tim.m@breadsmith.com,Edina,Minnesota,Zoom info & Hunter.io
+Wölffer Estate,Max,Rohn,Chief Executive Officer,,,Town of Southampton,New York,Zoom info & Hunter.io
+AMMO,Fred,Wagenhals,Chief Executive Officer,,,Lawton,Oklahoma,Zoom info & Hunter.io
+New Hope Mills Manufacturing,Douglas,Weed,President & Chief Executive Officer,,,,,Zoom info & Hunter.io
+DiamondRock Hospitality,Michael,McGilligan,Senior Vice President Asset Management,,mike.mcgilligan@drhc.com,Bethesda,Maryland,Apollo
+J.MAK HOSPITALITY,Jon,Makhmaltchi,Founder,,jon@jmak.com,New York,New York,Apollo
+Dune Resorts,Thomas,Hannan,Director of Operations,,thannan@duneresorts.com,Sayville,New York,Apollo
