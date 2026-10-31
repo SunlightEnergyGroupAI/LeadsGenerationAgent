@@ -455,7 +455,11 @@ def apolloFindAndEnrich(state: StateSchema) -> dict:
             enriched = enrichApolloContact(curr_lead.id)
             if enriched is None:
                 continue
-            contacts.append(enriched)
+            contacts.append(enriched) 
+
+    if contacts: 
+        writeNewApolloPageNumber(pageNumber)
+        return {"leads": contacts, "apollo_calls": state["apollo_calls"]+1, "new_apollo_leads": state["new_apollo_leads"]+1}
     writeNewApolloPageNumber(pageNumber) 
     return {"leads": contacts, "apollo_calls": state["apollo_calls"]+1} 
 
@@ -473,27 +477,34 @@ def FilterLeads(state: StateSchema) -> dict:
 
 
 def leadsToCSV(state: StateSchema): 
-    #change to filtered_leads later 
-    for contact in state["leads"]:
+    #change to filtered_leads later
+    # skip leads with no way to reach them (no phone and no email)
+    leads = [
+        contact for contact in state["leads"]
+        if (contact.phone or "").strip() or (contact.email or "").strip()
+    ]
+    print(f"Dropped {len(state['leads']) - len(leads)} leads with no phone or email")
+
+    for contact in leads:
         if not contact.city or not contact.state:
             loc = getLocationForCompany(contact.company, contact.state) or {}
             contact.city = contact.city or loc.get("city")
             contact.state = contact.state or loc.get("state")
 
-    print(f"{len(state['leads'])} leads for the CSV")
+    print(f"{len(leads)} leads for the CSV")
 
 
     dataframe = pd.DataFrame({
-        "company": [contact.company for contact in state["leads"]], 
-        "lead_first_name": [contact.lead_first_name for contact in state["leads"]], 
-        "lead_last_name": [contact.lead_last_name for contact in state["leads"]], 
-        "company_role": [contact.company_role for contact in state["leads"]],
-        "phone": [contact.phone for contact in state["leads"]], 
-        "email": [contact.email for contact in state["leads"]],  
-        "city": [contact.city for contact in state["leads"]],
-        "state": [contact.state for contact in state["leads"]],  
-        "data_source": [contact.data_source for contact in state["leads"]]
-    })  
+        "company": [contact.company for contact in leads],
+        "lead_first_name": [contact.lead_first_name for contact in leads],
+        "lead_last_name": [contact.lead_last_name for contact in leads],
+        "company_role": [contact.company_role for contact in leads],
+        "phone": [contact.phone for contact in leads],
+        "email": [contact.email for contact in leads],
+        "city": [contact.city for contact in leads],
+        "state": [contact.state for contact in leads],
+        "data_source": [contact.data_source for contact in leads]
+    })
     dataframe.to_csv("newleads.csv", index=False)  
     return {} 
 
@@ -700,7 +711,7 @@ def useHunterAndZoomAgain(state: StateSchema) -> str:
         return "next_tool" 
 
 def useApolloAgain(state: StateSchema) -> str: 
-    if state["apollo_calls"] < 50: 
+    if state["new_apollo_leads"] < 50: 
         return "use_again" 
     else: 
         return "filter" 

@@ -27,7 +27,8 @@ class StateSchema(TypedDict):
     apollo_calls: int 
     filtered_leads: list[Contact] 
     zoom_info_name_counter: int 
-    apollo_calls: int
+    apollo_calls: int 
+    new_apollo_leads: int
     
 
 
