@@ -3,9 +3,10 @@ from ddgs import DDGS
 import crawl4ai
 
 
-class FilterResponse(TypedDict):  
+class FilterResponse(TypedDict):
     reasoning: str
-    icp_verdict: bool 
+    icp_verdict: bool
+
 
 
 def searchLeadInformation(companyName: str): 
@@ -17,6 +18,5 @@ def searchLeadInformation(companyName: str):
 
 
 
-searchLeadInformation("kiva han coffee")
 
 

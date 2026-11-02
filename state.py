@@ -29,6 +29,9 @@ class StateSchema(TypedDict):
     zoom_info_name_counter: int 
     apollo_calls: int 
     new_apollo_leads: int
+    web_leads: int
+    web_search_rounds: int
+    searched_domains: Annotated[list[str], operator.add]
     
 
 

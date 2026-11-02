@@ -14,7 +14,7 @@ from langchain.mcp import MCPAdapter
 from langchain_core.documents import Document 
 from source import Source 
 import asyncio 
-from langchain.messages import SystemMessage  
+from langchain.messages import SystemMessage
 from supabase import create_client 
 import time  
 from langchain.agents import create_agent 
@@ -23,12 +23,12 @@ from fastmcp.client import Client
 from contact import Contact   
 from fastmcp.client.transports import StreamableHttpTransport  
 from langchain_core.tools import Tool 
-from SearchQuery import Query
-import re
 from urllib.parse import urlparse 
 import random
+from itertools import zip_longest
 from langchain.agents import create_agent 
 from filter import FilterResponse
+from filteringModel import isGoodLead
 
 load_dotenv()  
 tavilyapikey = os.getenv("TAVILYAPI")   
@@ -115,9 +115,9 @@ def namesZoomInfo():
 # namesZoomInfo()
 
 
-config = {"configurable": {"thread_id": "1"}, "recursion_limit": 100}
+config = {"configurable": {"thread_id": "1"}, "recursion_limit": 1000}
 checkpointer = InMemorySaver() 
-agent = init_chat_model(model_provider="ollama", model="qwen3.5:4b")  
+agent = init_chat_model(model_provider="ollama", model="qwen3.5:4b")
 graph = StateGraph(StateSchema)  
 
 
@@ -202,7 +202,7 @@ def enrichContactZoomInfo(contact: Contact, token: str) -> Contact:
     return contact
 
 
-def zoomInfoFindAndEnrich(state: StateSchema) -> dict:
+async def zoomInfoFindAndEnrich(state: StateSchema) -> dict:
     states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"}
     chosenState = states.get(random.randint(1, 4))
     uniqueContacts: list[Contact] = []
@@ -236,6 +236,7 @@ def zoomInfoFindAndEnrich(state: StateSchema) -> dict:
                 "contactAccuracyScoreMax": "99",
                 "employeeRangeMin": "20",
                 "employeeRangeMax": "800",
+                "revenueMax": "50000",  # in thousands, so $50M
                 "state": chosenState,
                 "industryCodes": "Manufacturing,Hospitality,Retail"
             }
@@ -260,8 +261,11 @@ def zoomInfoFindAndEnrich(state: StateSchema) -> dict:
             continue
         elif isInHubspot(currLead):
             continue
-        seen_companies.add(currLead.company) 
-        addedContact = enrichContactZoomInfo(currLead, token) 
+        seen_companies.add(currLead.company)
+        # filter before enriching so we don't spend ZoomInfo credits on bad leads
+        if not await isGoodLead(currLead):
+            continue
+        addedContact = enrichContactZoomInfo(currLead, token)
         addedContact.data_source = "Zoom Info"  
 
     
@@ -271,11 +275,12 @@ def zoomInfoFindAndEnrich(state: StateSchema) -> dict:
     return {
         "leads": uniqueContacts,
         "zm_access_token": token,
-        "zoom_info_calls": state["zoom_info_calls"]+1
+        # only count leads that passed the filter, so we keep searching until we get good ones
+        "zoom_info_calls": state["zoom_info_calls"] + len(uniqueContacts)
     }
 
 
-def zoomInfoFindNames(state: StateSchema) -> dict:
+async def zoomInfoFindNames(state: StateSchema) -> dict:
     states = {1: "New York", 2: "Maryland", 3: "New Jersey", 4: "Pennsylvania"}
     chosenState = states.get(random.randint(1, 4))
     nameOnlyContacts: list[Contact] = []
@@ -308,6 +313,7 @@ def zoomInfoFindNames(state: StateSchema) -> dict:
                 "contactAccuracyScoreMax": "99",
                 "employeeRangeMin": "20",
                 "employeeRangeMax": "800",
+                "revenueMax": "50000",  # in thousands, so $50M
                 "state": chosenState,
                 "country": "United States",
                 "industryCodes": "Manufacturing,Hospitality,Retail"
@@ -328,24 +334,29 @@ def zoomInfoFindNames(state: StateSchema) -> dict:
             lead_first_name=attrs["firstName"],
             lead_last_name=attrs["lastName"],
             company_role=attrs.get("jobTitle"),
+            state=attrs.get("state"),
             data_source="Zoom Info",
             id=record["id"]
         )
         if currLead.company in seen_companies:
             continue
         elif isInHubspot(currLead):
-            continue 
-        #where we modify the currLead variable by calling our func that gets the 
-        # location and state 
+            continue
+        #where we modify the currLead variable by calling our func that gets the
+        # location and state
 
         seen_companies.add(currLead.company)
+        # filter before Hunter so we don't spend Hunter credits on bad leads
+        if not await isGoodLead(currLead):
+            continue
         nameOnlyContacts.append(currLead)
     writeNewZoomInfoPageNumber(page) 
     return {
         "leads_to_get_email": nameOnlyContacts,
         "zm_access_token": token, 
-        "zoom_info_name_counter": state["zoom_info_name_counter"] + 1
-    } 
+        # only count leads that passed the filter and were sent to Hunter
+        "zoom_info_name_counter": state["zoom_info_name_counter"] + len(nameOnlyContacts)
+    }
 
 def hunterFindEmails(state: StateSchema) -> dict:  
     contacts: list[Contact] = []  
@@ -359,7 +370,7 @@ def hunterFindEmails(state: StateSchema) -> dict:
         data = response.json() 
         lead_email = data.get("data",{}).get("email") 
         companyInfo = getLocationForCompany(company_name) or {}
-        contacts.append(Contact(company_name, first_name, last_name, role, email=lead_email, state=companyInfo.get("state"), data_source="Zoom info & Hunter.io", city=companyInfo.get("city"))) 
+        contacts.append(Contact(company_name, first_name, last_name, role, email=lead_email, state=companyInfo.get("state"), data_source="Zoom info & Hunter.io", city=companyInfo.get("city"), fit_score_reasoning=contact.fit_score_reasoning))
     return {"leads": contacts}  
     
 
@@ -412,10 +423,10 @@ def enrichApolloContact(apollo_id: str) -> Contact | None:
         city=person.get("city")
     )
 
-def apolloFindAndEnrich(state: StateSchema) -> dict: 
+async def apolloFindAndEnrich(state: StateSchema) -> dict:
     print("USING APOLLO") 
     contacts: list[Contact] = [] 
-    url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=director&person_seniorities[]=vp&person_seniorities[]=founder&organization_locations[]=New%20Jersey%2C%20US&organization_locations[]=New%20York%2C%20US&organization_locations[]=Maryland%2C%20US&organization_locations[]=Pennsylvania%2C%20US&person_locations[]=New%20Jersey%2C%20US&person_locations[]=New%20York%2C%20US&person_locations[]=Maryland%2C%20US&person_locations[]=Pennsylvania%2C%20US&q_organization_keyword_tags[]=manufacturing&q_organization_keyword_tags[]=machinery&q_organization_keyword_tags[]=plastics&q_organization_keyword_tags[]=pharmaceuticals&q_organization_keyword_tags[]=building%20materials&q_organization_keyword_tags[]=food%20production&q_organization_keyword_tags[]=hospitality&q_organization_keyword_tags[]=hotels&q_organization_keyword_tags[]=supermarkets&q_organization_keyword_tags[]=resorts&contact_email_status[]=verified&contact_email_status[]=likely%20to%20engage&contact_email_status[]=unverified&organization_num_employees_ranges[]=10%2C1000&page=1&per_page=1"
+    url = "https://api.apollo.io/api/v1/mixed_people/api_search?person_seniorities[]=c_suite&person_seniorities[]=director&person_seniorities[]=vp&person_seniorities[]=founder&organization_locations[]=New%20Jersey%2C%20US&organization_locations[]=New%20York%2C%20US&organization_locations[]=Maryland%2C%20US&organization_locations[]=Pennsylvania%2C%20US&person_locations[]=New%20Jersey%2C%20US&person_locations[]=New%20York%2C%20US&person_locations[]=Maryland%2C%20US&person_locations[]=Pennsylvania%2C%20US&q_organization_keyword_tags[]=manufacturing&q_organization_keyword_tags[]=machinery&q_organization_keyword_tags[]=plastics&q_organization_keyword_tags[]=pharmaceuticals&q_organization_keyword_tags[]=building%20materials&q_organization_keyword_tags[]=food%20production&q_organization_keyword_tags[]=hospitality&q_organization_keyword_tags[]=hotels&q_organization_keyword_tags[]=supermarkets&q_organization_keyword_tags[]=resorts&contact_email_status[]=verified&contact_email_status[]=likely%20to%20engage&contact_email_status[]=unverified&organization_num_employees_ranges[]=10%2C1000&revenue_range[max]=50000000&page=1&per_page=1"
     pageNumber = fetchNewApolloPageNumber()  
     url = url.replace("&page=1&", f"&page={pageNumber}&")
 
@@ -451,11 +462,13 @@ def apolloFindAndEnrich(state: StateSchema) -> dict:
             continue
         if isInHubspot(curr_lead):
             print("skip, already in HubSpot:", curr_lead.company)
-        else:
+        # filter before enriching so we don't spend Apollo credits on bad leads
+        elif await isGoodLead(curr_lead):
             enriched = enrichApolloContact(curr_lead.id)
             if enriched is None:
                 continue
-            contacts.append(enriched) 
+            enriched.fit_score_reasoning = curr_lead.fit_score_reasoning
+            contacts.append(enriched)
 
     if contacts: 
         writeNewApolloPageNumber(pageNumber)
@@ -468,11 +481,6 @@ def apolloFindAndEnrich(state: StateSchema) -> dict:
 
 
 
-def FilterLeads(state: StateSchema) -> dict: 
-    #TODO: build the ML model to filter the leads  
-    #WILL BE IN V2 
-    return {}
-        
 
 
 
@@ -553,112 +561,167 @@ else:
     print(result)
     return {}
 
-async def searchWeb(state: StateSchema):
+async def crawlCompanySite(crawler: AsyncWebCrawler, homeUrl: str) -> str:
+    try:
+        home = await asyncio.wait_for(crawler.arun(url=homeUrl), timeout=20)
+    except Exception as e:
+        print("skip", homeUrl, e)
+        return ""
+
+    pages = []
+    for link in (home.links or {}).get("internal", []):
+        href = link.get("href", "")
+        if any(w in href.lower() for w in CONTACT_WORDS) and href not in pages:
+            pages.append(href)
+
+    # about/contact pages first since they say what the business does and where it is
+    text = ""
+    for page in pages[:4]:
+        try:
+            res = await asyncio.wait_for(crawler.arun(url=page), timeout=20)
+            text += str(res.markdown or "") + "\n"
+        except Exception as e:
+            print("  skip page", page, e)
+    text += str(home.markdown or "")
+    return text
+
+
+def findDecisionMakerApollo(domain: str) -> dict | None:
+    # apollo search is free, credits only get spent later in enrichApolloContact
+    url = f"https://api.apollo.io/api/v1/mixed_people/api_search?q_organization_domains_list[]={domain}&person_seniorities[]=owner&person_seniorities[]=founder&person_seniorities[]=c_suite&person_seniorities[]=vp&person_seniorities[]=director&per_page=10"
+    headers = {
+        "Cache-Control": "no-cache",
+        "Content-Type": "application/json",
+        "accept": "application/json",
+        "x-api-key": os.getenv("APOLLOAPIKEY"),
+    }
+    response = requests.post(url, headers=headers, timeout=30)
+    response.raise_for_status()
+    people = response.json().get("people", [])
+
+    # pick the person closest to the top, in the order of DECISION_MAKER_TITLES
+    for titleWord in DECISION_MAKER_TITLES:
+        for person in people:
+            if titleWord in (person.get("title") or "").lower():
+                return person
+    return people[0] if people else None
+
+
+async def searchWeb(state: StateSchema) -> dict:
     """
-    Step 1: search Bing, Yandex and Tavily and keep the first 10 company websites.
-    Step 2: crawl each company's site (homepage plus contact/about/team pages)
-    and pull emails, phones and exec-title lines.
+    Step 1: search Bing, Yandex and Tavily for ICP businesses and keep the first 10 new company websites.
+    Step 2: look up each company's top decision-maker in Apollo by its website (free search).
+    Step 3: crawl the site and run the lead through the filter with what we crawled.
+    Step 4: only if it passes, enrich in Apollo and keep it if we got a direct email or phone.
 
     Returns:
-    - dict: {"leads": contact}, one Contact per new company that has an email on its site 
-
-    """ 
-    contact: list[Contact] = [] 
+    - dict: {"leads": contact, "web_leads": count, "searched_domains": domains}
+    """
+    contact: list[Contact] = []
+    searchedDomains: list[str] = []
 
     tavilyEngine = TavilyClient(api_key=tavilyapikey)
     searchEngine = DDGS()
-    queryMakerLLM = init_chat_model(model_provider="ollama", model="nemotron-3-nano:30b-cloud").with_structured_output(Query)
+    # plain text output since the prompt asks for just the query on one line
+    queryMakerLLM = init_chat_model(model_provider="ollama", model="nemotron-3-nano:30b-cloud")
 
-    sq = queryMakerLLM.invoke([icp_prompt])["search_query"]
-    sq2 = queryMakerLLM.invoke([icp_prompt2])["search_query"]
+    sq = queryMakerLLM.invoke([makeIcpPrompt(random.choice(WEB_TRADES), random.choice(list(ICP_STATES)))]).content.strip()
+    sq2 = queryMakerLLM.invoke([makeIcpPrompt(random.choice(WEB_TRADES), random.choice(list(ICP_STATES)))]).content.strip()
     print("BING QUERY:", sq)
     print("YANDEX QUERY:", sq2)
-    urls = []
+    bingUrls, yandexUrls, tavilyUrls = [], [], []
     try:
-        urls += [r["href"] for r in searchEngine.text(sq, max_results=15, backend="bing")]
+        bingUrls = [r["href"] for r in searchEngine.text(sq, max_results=15, backend="bing")]
     except Exception as e:
         print("bing failed:", e)
     try:
-        urls += [r["href"] for r in searchEngine.text(sq2, max_results=15, backend="yandex")]
+        yandexUrls = [r["href"] for r in searchEngine.text(sq2, max_results=15, backend="yandex")]
     except Exception as e:
         print("yandex failed:", e)
     try:
-        urls += [r["url"] for r in tavilyEngine.search(sq, max_results=10)["results"]]
+        tavilyUrls = [r["url"] for r in tavilyEngine.search(sq, max_results=10)["results"]]
     except Exception as e:
         print("tavily failed:", e)
+    # take turns between sources so both queries get sites in the top 10
+    urls = [u for group in zip_longest(bingUrls, yandexUrls, tavilyUrls) for u in group if u]
 
-    companies = {}  
+    alreadySearched = set(state.get("searched_domains", []))
+    companies = {}
     for u in urls:
         domain = urlparse(u).netloc.lower().removeprefix("www.")
-        if not domain or any(b in domain for b in BLOCKED) or domain in companies:
+        if not domain or any(b in domain for b in BLOCKED) or domain in companies or domain in alreadySearched:
             continue
         companies[domain] = u
         if len(companies) == 10:
             break
     print(f"{len(companies)} companies found:", list(companies))
-    email_re = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-    phone_re = re.compile(r"\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}")
-    title_re = re.compile(
-        r"^.*\b(CEO|Chief \w+ Officer|President|Vice President|VP|Director|Manager|Owner|Pastor)\b.*$",
-        re.MULTILINE,
-    )
-    junk = ("example.com", "sentry", "wixpress", ".png", ".jpg", ".webp")
 
-    seen_companies = {c.company for c in state.get("leads", [])}
+    seen_companies = {(c.company or "").lower() for c in state.get("leads", [])}
     async with AsyncWebCrawler() as crawler:
         for domain, home_url in companies.items():
-            print("crawling:", domain)
-            text = ""
+            searchedDomains.append(domain)
+            if hubspotSearch("companies", "domain", domain):
+                print("skip, already in HubSpot:", domain)
+                continue
+
             try:
-                home = await asyncio.wait_for(crawler.arun(url=home_url), timeout=20)
-                text += str(home.markdown or "")
-                pages = []
-                for link in (home.links or {}).get("internal", []):
-                    href = link.get("href", "")
-                    if any(w in href.lower() for w in CONTACT_WORDS) and href not in pages:
-                        pages.append(href)
-
-                for page in pages[:3]:
-                    try:
-                        res = await asyncio.wait_for(crawler.arun(url=page), timeout=20)
-                        text += "\n" + str(res.markdown or "")
-                    except Exception as e:
-                        print("  skip page", page, e)
+                person = findDecisionMakerApollo(domain)
             except Exception as e:
-                print("skip", domain, e)
+                print("skip, Apollo search failed:", domain, e)
+                continue
+            if not person:
+                print("skip, no decision-maker in Apollo:", domain)
                 continue
 
-            emails = sorted({e.lower().strip(".") for e in email_re.findall(text)
-                             if not any(j in e.lower() for j in junk)})
-            phones = sorted(set(phone_re.findall(text)))[:3]
-            title_lines = [m.group(0).strip()[:120] for m in title_re.finditer(text)][:5]
-
-            print(f"{domain} | emails: {len(emails)} | phones: {len(phones)} | title lines: {len(title_lines)}")
-            if not emails:
-                continue
+            organization = person.get("organization") or {}
             currLead = Contact(
-                company=domain,
-                company_role=title_lines[0] if title_lines else None,
-                email=emails[0],
-                phone=phones[0] if phones else None,
+                company=organization.get("name") or domain,
+                lead_first_name=person.get("first_name"),
+                company_role=person.get("title"),
+                data_source="Web Search & Apollo",
+                id=person["id"],
             )
-            if currLead.company in seen_companies:
+            if currLead.company.lower() in seen_companies:
+                print("skip, already have this company:", currLead.company)
                 continue
-            elif hubspotSearch("companies", "domain", domain):
+
+            print("crawling:", domain)
+            text = await crawlCompanySite(crawler, home_url)
+            if not await isGoodLead(currLead, research=text):
                 continue
-            seen_companies.add(currLead.company)
-            contact.append(currLead) 
 
-    return {"leads": contact}
+            # only spend an Apollo enrichment once the lead passed the filter
+            enriched = enrichApolloContact(currLead.id)
+            if enriched is None or not (enriched.email or enriched.phone):
+                print("skip, Apollo has no email or phone:", domain)
+                continue
+            enriched.data_source = "Web Search & Apollo"
+            enriched.fit_score_reasoning = currLead.fit_score_reasoning
+            seen_companies.add(currLead.company.lower())
+            contact.append(enriched)
+
+    return {
+        "leads": contact,
+        "web_leads": state["web_leads"] + len(contact),
+        "web_search_rounds": state["web_search_rounds"] + 1,
+        "searched_domains": searchedDomains,
+    }
 
 
-icp_prompt = """
+WEB_TRADES = [
+    "coffee roaster", "craft brewery", "distillery", "winery", "commercial bakery", "food processing plant",
+    "machine shop", "sheet metal fabrication", "plastics molding", "commercial printing", "woodworking shop",
+    "boutique hotel", "family owned inn", "dry cleaner", "cold storage warehouse",
+]
+
+
+def makeIcpPrompt(trade: str, stateName: str) -> str:
+    return f"""
 Write one web search query that finds the websites of individual businesses.
 
-Target: a small manufacturer in Maryland.
+Target: a {trade} in {stateName}.
 
-Pick ONE specific trade (for example machine shop, sheet metal fabrication, plastics molding,
-food production, printing, woodworking) and ONE Maryland city or town.
+Pick ONE {stateName} city or town and write a query for a {trade} there.
 
 Rules:
 - Plain keywords only
@@ -671,28 +734,21 @@ Rules:
 Example of the style: sheet metal fabrication Pittsburgh Pennsylvania
 """
 
-icp_prompt2 = """
-Write one web search query that finds the websites of individual businesses.
 
-Target: an independent hotel, inn or motel in New Jersey.
-
-Pick ONE type (for example boutique hotel, family owned inn, bed and breakfast, motel,
-resort) and ONE New Jersey city or town.
-
-Rules:
-- Plain keywords only
-- No quotes, no parentheses, no OR or AND, no site: filters
-- Do not use the words best, top, list, hotels, small, or directory
-- Under 10 words
-- Do not mention job titles, emails, or LinkedIn
-- Return only the query, with no explanation
-
-Example of the style: family owned inn Austin Texas
-"""
+DECISION_MAKER_TITLES = ("owner", "founder", "president", "ceo", "chief executive", "general manager",
+                         "coo", "chief operating", "cfo", "chief financial", "operations", "facilities", "plant")
 
 BLOCKED = ("yelp.", "linkedin.", "facebook.", "indeed.", "glassdoor.", "yellowpages.",
            "tripadvisor.", "zoominfo.", "mapquest.", "bbb.org", "wikipedia.", "reddit.",
-           "instagram.", "youtube.", "manta.", "dnb.com", "expedia.", "booking.com")
+           "instagram.", "youtube.", "manta.", "dnb.com", "expedia.", "booking.com",
+           "allbiz.", "bizapedia.", "opencorporates.", "buzzfile.", "chamberofcommerce.",
+           "crunchbase.", "bloomberg.", "rocketreach.", "apollo.io",
+           "yahoo.", "bing.", "google.", "msn.", "duckduckgo.", "aol.",
+           "tiktok.", "pinterest.", "x.com", "twitter.", "momondo.", "kayak.", "hotels.com", "hotelplanner.",
+           "trivago.", "priceline.", "orbitz.", "travelocity.", "agoda.", "airbnb.", "vrbo.", "hotelsidekick.",
+           "americanhotels.", "wheretostay", "guide", "visit", "tourism", "untappd.", "beeradvocate.",
+           "thumbtack.", "angi.", "houzz.", "nextdoor.", "groupon.", "doordash.", "ubereats.", "grubhub.",
+           "amazon.", "ebay.", "etsy.", "alibaba.", "thomasnet.", ".gov", ".edu", "news", "patch.com")
 CONTACT_WORDS = ("contact", "about", "team", "leadership", "staff", "people", "management")
 
 
@@ -711,10 +767,17 @@ def useHunterAndZoomAgain(state: StateSchema) -> str:
         return "next_tool" 
 
 def useApolloAgain(state: StateSchema) -> str: 
-    if state["new_apollo_leads"] < 50: 
+    if state["new_apollo_leads"] < 10: 
         return "use_again" 
     else: 
-        return "filter" 
+        return "filter"
+
+def useSearchWebAgain(state: StateSchema) -> str:
+    # stop after 5 rounds even without 5 leads so it can't loop for hours
+    if state["web_leads"] < 5 and state["web_search_rounds"] < 5:
+        return "use_again"
+    else:
+        return "next_tool"
 
 
 
@@ -726,7 +789,6 @@ graph.add_node(zoomInfoFindNames)
 graph.add_node(hunterFindEmails)  
 graph.add_node(apolloFindAndEnrich)
 graph.add_node(leadsToCSV) 
-graph.add_node(FilterLeads)
 graph.add_node(SendCSV_ToEmail)  
 graph.add_node(searchWeb)
 
@@ -742,27 +804,36 @@ graph.add_conditional_edges(
     useHunterAndZoomAgain, 
     {"use_again": "zoomInfoFindNames", "next_tool": "apolloFindAndEnrich"}
 ) 
-graph.add_conditional_edges("apolloFindAndEnrich", useApolloAgain, {"use_again": "apolloFindAndEnrich", "filter": "leadsToCSV"}) 
+graph.add_conditional_edges("apolloFindAndEnrich", useApolloAgain, {"use_again": "apolloFindAndEnrich", "filter": "searchWeb"})
+graph.add_conditional_edges(
+    "searchWeb",
+    useSearchWebAgain,
+    {"use_again": "searchWeb", "next_tool": "leadsToCSV"}
+)
 graph.add_edge("leadsToCSV", "SendCSV_ToEmail")
 graph.add_edge("SendCSV_ToEmail", END)
 app = graph.compile(checkpointer=checkpointer) 
 app.get_graph().draw_png("workflow.png")
 
-# getApolloContacts()
 
-# result = asyncio.run(app.ainvoke(
-#     {
-#         "leads": [],
-#         "leads_to_get_email": [],
-#         "zoom_info_calls": 0,
-#         "zoom_info_name_counter": 0,
-#         "apollo_calls": 0,
-#         "names_page": 0,
-#     },
-#     config, 
-    
-# ))
-# print(len(result["leads"]), "leads")
+if __name__ == "__main__":
+    result = asyncio.run(app.ainvoke(
+        {
+            "leads": [],
+            "leads_to_get_email": [],
+            "zoom_info_calls": 0,
+            "zoom_info_name_counter": 0,
+            "apollo_calls": 0,
+            "new_apollo_leads": 0,
+            "web_leads": 0,
+            "web_search_rounds": 0,
+            "searched_domains": [],
+            "names_page": 0,
+        },
+        config,
+
+    ))
+    print(len(result["leads"]), "leads")
 
 
 

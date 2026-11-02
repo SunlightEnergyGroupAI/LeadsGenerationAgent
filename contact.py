@@ -7,7 +7,7 @@ class Contact:
     lead_first_name: str | None = None  
     lead_last_name: str | None = None
     company_role: str | None = None
-    data_source: Literal["Zoom Info", "Zoom info & Hunter.io", "Apollo"] | None = None
+    data_source: Literal["Zoom Info", "Zoom info & Hunter.io", "Apollo", "Web Search & Apollo"] | None = None
     fit_score: int | None = None 
     phone: str | None = None
     email: str | None = None 
