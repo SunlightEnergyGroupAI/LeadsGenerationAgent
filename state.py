@@ -32,6 +32,9 @@ class StateSchema(TypedDict):
     web_leads: int
     web_search_rounds: int
     searched_domains: Annotated[list[str], operator.add]
+    ny_public_leads: int
+    ny_public_rounds: int
+    ny_public_started_at: float
     
 
 

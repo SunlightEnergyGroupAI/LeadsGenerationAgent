@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
 from langchain.chat_models import init_chat_model
 from langchain.messages import SystemMessage, HumanMessage
-from crawl4ai import AsyncWebCrawler
+from crawl4ai import AsyncWebCrawler, CrawlResult
 from urllib.parse import urlparse
 from ddgs import DDGS
 from contact import Contact
@@ -45,6 +45,12 @@ def isBadRole(role: str | None) -> bool:
     # "it" has to be its own word so titles like "Quality Director" don't match
     return any(word in role for word in BAD_ROLE_WORDS) or "it" in re.split(r"\W+", role)
 MAX_PAGE_CHARS = 6000
+# a street address like "830 North Bay Avenue", the street type at the end keeps random numbers from matching
+STREET_PATTERN = (r"\b\d{1,6}\s+(?:[A-Z0-9][A-Za-z0-9.]*\s+){0,4}"
+                  r"(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Ln|Lane|Pike|Hwy|Highway"
+                  r"|Way|Ct|Court|Pl|Place|Pkwy|Parkway|Tpke|Turnpike)\b\.?")
+# pages that usually have the address when the homepage doesn't
+ADDRESS_PAGE_WORDS = ("contact", "location", "visit", "find-us")
 
 BLOCKED = ("yelp.", "linkedin.", "facebook.", "indeed.", "glassdoor.", "yellowpages.",
            "tripadvisor.", "zoominfo.", "mapquest.", "bbb.org", "wikipedia.", "reddit.",
@@ -130,50 +136,96 @@ def findCompanyWebsite(contact: Contact) -> str | None:
     return None
 
 
+def findStreetInText(text: str | None) -> str | None:
+    match = re.search(STREET_PATTERN, text or "")
+    if not match:
+        return None
+    return match.group(0).strip(" ,")
+
+
+def findStreetInHtml(html: str | None) -> str | None:
+    # a lot of sites hide their address in structured data for google, which never shows up in the text
+    match = re.search(r'"streetAddress"\s*:\s*"([^"]+)"', html or "")
+    if not match:
+        return None
+    return match.group(1).strip(" ,")
+
+
+async def findCompanyAddress(crawler: AsyncWebCrawler, home: CrawlResult) -> str | None:
+    address = findStreetInHtml(home.html) or findStreetInText(str(home.markdown or ""))
+    if address:
+        return address
+
+    for link in (home.links or {}).get("internal", []):
+        href = link.get("href", "")
+        if any(word in href.lower() for word in ADDRESS_PAGE_WORDS):
+            try:
+                page = await asyncio.wait_for(crawler.arun(url=href), timeout=20)
+            except Exception as e:
+                print("skip", href, e)
+                return None
+            return findStreetInHtml(page.html) or findStreetInText(str(page.markdown or ""))
+    return None
+
+
 async def researchCompany(crawler: AsyncWebCrawler, contact: Contact) -> str:
     url = findCompanyWebsite(contact)
     if not url:
         return ""
     try:
         page = await asyncio.wait_for(crawler.arun(url=url), timeout=20)
-        return str(page.markdown or "")[:MAX_PAGE_CHARS]
     except Exception as e:
         print("skip", url, e)
         return ""
+    # crawl address is the backup, enrichment puts the API address first if there is one
+    contact.company_address = contact.company_address or await findCompanyAddress(crawler, page)
+    return str(page.markdown or "")[:MAX_PAGE_CHARS]
 
 
 # Stage 3: small AI model verdict
 
 verdict_prompt = """
-You decide if a lead is a good fit for Sunlight Energy Group, an energy consulting company
-that helps businesses lower their electricity and natural gas costs.
+You decide if a business is a good sales lead for Sunlight Energy Group.
 
-A good lead is a small or mid-sized business with a physical location that uses real energy,
-where the contact can make or influence decisions about costs, utilities, or facilities
-(owner, co-owner, founder, CEO, president, general manager, CFO, COO, operations, facilities, plant, purchasing).
+ABOUT SUNLIGHT ENERGY GROUP
+Sunlight Energy Group is an energy management company based in New York City. We help businesses
+manage their electricity and natural gas costs. We do this in three ways:
+1. Energy procurement: we get the business better electricity and gas rates and a smart buying strategy.
+2. Bill auditing: we check their energy bills every month so they are never overcharged.
+3. Sustainability: we help them cut energy use, use tax incentives, and follow local energy laws.
+Our best customers are businesses with big energy bills, because that is where we can save them the most.
 
-Every one of these industries is a good fit, you do not need to see heavy equipment:
+A GOOD LEAD has ALL of these:
+1. A physical location in New York, New Jersey, Maryland, or Pennsylvania, like a plant, shop, hotel,
+   restaurant, warehouse, or store.
+2. A small or mid-sized business that pays its own energy bills.
+3. A contact who can make or influence decisions about costs or the building: owner, co-owner, founder,
+   CEO, president, general manager, CFO, COO, or a head of operations, facilities, plant, or purchasing.
+
+These industries are good fits because they use a lot of energy:
 manufacturing, machine shops, plastics, metal fabrication, commercial printing, food and beverage
-production (coffee roasters, breweries, distilleries, wineries, bakeries, food processors), hotels, inns,
-resorts, dry cleaners and laundries, restaurants, warehouses and cold storage, multi-location retail,
-and property management.
+production (coffee roasters, breweries, distilleries, wineries, bakeries, food processors), hotels, inns, hospitality, churches
+resorts, restaurants, warehouses, pharmaceuticals, and cold storage, multi-location retail.
 
-A bad lead:
-- Large companies we are unlikely to win: publicly traded companies, REITs, and large national chains,
-  brands, or franchise locations of a national brand
-- Software, consulting, media, directories, blogs, or remote-only companies with little energy usage
-- Contacts in sales, marketing, HR, IT, or business development
-- Businesses clearly located outside New York, New Jersey, Maryland, and Pennsylvania
+A BAD LEAD has ANY of these:
+1. No physical location in New York, New Jersey, Maryland, or Pennsylvania. This includes online-only
+   or remote companies, and companies whose locations are all in other states or countries.
+2. A large company we are unlikely to win: publicly traded companies, REITs, large national or global
+   chains and brands, companies owned by a bigger parent group, and franchise locations of a national brand.
+3. A business that uses very little energy: software, consulting, media, directories, or blogs.
+4. A contact who works in sales, marketing, HR, IT, or business development.
 
-Location: cities like Newark, Jersey City, Brooklyn, Buffalo, Baltimore, Philadelphia, and Pittsburgh are inside
-the target states. Only reject for location if the research clearly shows the business is in another state or country.
-If the location is unknown, do not reject for location.
+HOW TO DECIDE
+- Check every bad lead rule. If even one matches, it is a bad lead, even if it is in our states.
+- Use the website research to see what the company does and where its locations are.
+- If the research is empty, or about a different company, it is a bad lead unless it is obvious by the name of the company that it is a good lead examples (Whitestone Plastics, Aisle Manufacturing, etc).
+- Cities like Newark, Jersey City, Brooklyn, Buffalo, Baltimore, Philadelphia, and Pittsburgh are inside our states.
+- If you cannot tell where the business is ie city or state reject it, since we need as much information we can get.
+- If a lead is borderline, approve it. Our sales team reviews every lead.
 
-Use the website research to judge what the company does. If the research is empty, or is about a different
-company or an unrelated page, ignore it and judge from the company name and role.
-When a lead is borderline, approve it, the sales team reviews every lead.
-Give short reasoning, then the verdict. The verdict must match your reasoning: if your reasoning
-says the lead is a likely fit, the verdict is true.
+ANSWER
+Write 2 to 3 short sentences of reasoning, then the verdict.
+The verdict must match your reasoning: if your reasoning says it is a good lead, the verdict is true.
 """
 
 
@@ -204,6 +256,8 @@ async def isGoodLead(contact: Contact, crawler: AsyncWebCrawler | None = None, r
 
     # web search leads already crawled the site, so reuse that text instead of crawling again
     if research is not None:
+        # web search already crawled the contact pages, so the address is in this text
+        contact.company_address = contact.company_address or findStreetInText(research)
         research = research[:MAX_PAGE_CHARS]
     elif crawler is None:
         async with AsyncWebCrawler() as crawler:
@@ -220,6 +274,11 @@ async def isGoodLead(contact: Contact, crawler: AsyncWebCrawler | None = None, r
     if verdict["icp_verdict"]:
         contact.fit_score_reasoning = verdict["reasoning"]
     return verdict["icp_verdict"]
+
+
+def checkInNYDatabase():  
+    ... 
+
 
 
 async def filterLeads(leads: list[Contact]) -> list[Contact]:

@@ -8,6 +8,14 @@ class FilterResponse(TypedDict):
     icp_verdict: bool
 
 
+class PersonResponse(TypedDict):
+    first_name: str
+    last_name: str
+    title: str
+    email: str
+    phone: str
+
+
 
 def searchLeadInformation(companyName: str): 
     engine = DDGS() 

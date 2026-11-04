@@ -1,13 +1,21 @@
-company,lead_first_name,lead_last_name,company_role,phone,email,city,state,data_source
-Furmano's,Chad,Geise,President & Chief Executive Officer,(570) 473-3516,chad.geise@furmanos.com,,Pennsylvania,Zoom Info
-Nathan's Famous,Robert,Steinberg,"Vice President, Finance & Chief Financial Officer & Chief Accounting Officer & Treasurer & Secretary",,rsteinberg@nathansfamous.com,Derry Township,Pennsylvania,Zoom info & Hunter.io
-DiamondRock Hospitality,Briony,Quinn,"Executive Vice President, Chief Financial Officer & Treasurer",,briony.quinn@drhc.com,Bethesda,Maryland,Apollo
-Dune Resorts,Thomas,Hannan,Director of Operations,,thannan@duneresorts.com,Sayville,New York,Apollo
-Woodbine Hospitality,Melissa,Parsons,Vice President,,mparsons@woodbinehospitality.com,Syracuse,New York,Apollo
-"Hart Hotels, Inc.",Kenneth,Best,Asst. Vice President Operations,,kbest@harthotels.com,Buffalo,New York,Apollo
-Vista Hospitality Company,Paul,Pedro,Regional Controller,,paul@vistahospitality.com,Binghamton,New York,Apollo
-Harrison Group Resort Hotels & Restaurants,Bill,Deller,Chief Financial Officer,,bdeller@harrisongp.com,Ocean City,Maryland,Apollo
-Lehigh Valley Plastics,Shelly,McWilliams,President,,smcwilliams@lehighvalleyplastics.com,Allentown,Pennsylvania,Apollo
-"Pittsburgh Plastics Manufacturing, Inc.",Casey,Carr,Chief Executive Officer,,ccarr@pittsburghplastics.com,Butler,Pennsylvania,Apollo
-APC Hospitality,Bisi,Bamigboye,Account Manager/Special Projects Director,,bbamigboye@advancedparkingconcepts.com,Verona,New Jersey,Apollo
-VIVÂMEE Hospitality,Josh,McCallen,Chief Executive Officer,,jmccallen@vivamee.com,Philadelphia,Pennsylvania,Apollo
+company,lead_first_name,lead_last_name,company_role,phone,email,company_address,city,state,data_source
+Blueland,Jeremy,Bruno,Chief Operations Officer,,jeremy@blueland.com,,,Maryland,Zoom info & Hunter.io
+Montez Group,Oscar,Zavaleta,Founder & Chief Executive Officer,,ozavaleta@montezgroup.com,249 Onondaga Avenue,,New Jersey,Zoom info & Hunter.io
+Groth Vineyards & Winery,Suzanne,Groth,President & Chief Executive Officer,,sgroth@grothwines.com,750 Oakville Cross Road,Gaithersburg,Maryland,Zoom info & Hunter.io
+Westfield Steel,Fritz,Prine,President & Chief Executive Officer,,fritzprine@westfieldsteel.com,545 State Road,Westfield,New York,Zoom info & Hunter.io
+ARCTIC ZERO,Jason,Paine,President & Chief Executive Officer,,jason@arcticzero.com,,Stillwater Township,New Jersey,Zoom info & Hunter.io
+Equinox Hotels,Ara,Patterson,Vice President of Food and Beverage & Spa,,ara.patterson@equinox.com,31 Hudson Yards,New York,New York,Apollo
+Alliance Precision Plastics,Dawn,Andersen,Director of Supply Chain,,dandersen@allianceppc.com,1220 Lee Rd,Rochester,New York,Apollo
+"Munson Machinery Co., Inc.",Charles,Divine,President,,cdivine@munsonmachinery.com,210 Seward Ave,Clinton,New York,Apollo
+"Autronic Plastics, Inc.",Tim,Keuning,Vice President of Operations,,tkeuning@apisolution.com,1150 Motor Pkwy,Westbury,New York,Apollo
+"Horizon Hotels, Ltd.",Robert,Sacco,CFO/Sr. Vice President,,rsacco@horizonhotels.com,99 Corbett Way,Eatontown,New Jersey,Apollo
+Piper Plastics Corp.,Ernesto,Cabello,President,,ecabello@piper-plastics.com,102 Ralph Ave,Hauppauge,New York,Apollo
+"R.B. Woodcraft, Inc.",Joseph,McGlynn,CFO,,jmcglynn@rbwoodcraft.com,1860 Erie Blvd E,Syracuse,New York,Apollo
+"Brentwood Industries, Inc.",Walter,Banta,Chief Operations Officer,,walter.banta@brentwoodindustries.com,500 Spring Ridge Dr,Reading,Pennsylvania,Apollo
+The Eldred Preserve,Warren,Wagner,Director of Maintenance,,wwagner@theeldredpreserve.com,1040 State Route 55,Eldred,New York,Apollo
+E&T Plastics Mfg. Co. Inc.,Nick,Morillo,"Product Line Manager, Chief Executive Officer",,nmorillo@e-tplastics.com,45-45 37th St,New York,New York,Apollo
+Princeton Corkscrew Wine Shop,Laurent,Chapuis,"Owner, t3m",,laurent@princetoncorkscrew.com,49 Hulfish St,Princeton,New Jersey,Web Search & Apollo
+"Baltimore Fabrication, an affiliate of SteelFab",Scott,Foreman,Owner - President,,scott@baltimorefab.com,101 N Haven St,Baltimore,Maryland,Web Search & Apollo
+Michelle Lipson Woodworking,Michelle,Lipson,Owner,,michelle@michellelipson.com,3211 Cedar St,Philadelphia,Pennsylvania,Web Search & Apollo
+Philadelphia Woodworks,Michael,Vogel,President,,michael@philadelphiawoodworks.com,4901 Umbria St,Philadelphia,Pennsylvania,Web Search & Apollo
+FreezPak Logistics,Dave,Saoud,Co-Founder/CEO,,dave@freezpak.com,2 Paddock St,New York,New York,Web Search & Apollo
